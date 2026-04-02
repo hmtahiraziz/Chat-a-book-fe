@@ -64,6 +64,9 @@ export function WorkspaceLibraryView() {
     liveIngestStatus,
     isControllingIngest,
     ingestFilename,
+    ingestDisplayLabel,
+    ingestDisplayName,
+    setIngestDisplayName,
     embeddingProvider,
     setEmbeddingProvider,
     handleIngest,
@@ -582,6 +585,27 @@ export function WorkspaceLibraryView() {
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 className="w-full rounded-lg border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2 text-sm text-[var(--text)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--panel-soft)] file:px-3 file:py-1.5 file:text-xs file:font-medium"
               />
+              <div>
+                <label
+                  htmlFor="ingest-display-name"
+                  className="mb-1 block text-xs font-medium text-[var(--muted)]"
+                >
+                  Library name <span className="font-normal text-[var(--faint)]">(optional)</span>
+                </label>
+                <input
+                  id="ingest-display-name"
+                  type="text"
+                  value={ingestDisplayName}
+                  onChange={(e) => setIngestDisplayName(e.target.value)}
+                  placeholder="e.g. Animal Farm"
+                  maxLength={240}
+                  disabled={isIndexing}
+                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2 text-sm text-[var(--text)] placeholder:text-[var(--faint)] disabled:opacity-60"
+                />
+                <p className="mt-1 text-[10px] leading-relaxed text-[var(--faint)]">
+                  Shown in the library and used for the book id. Leave blank to use the PDF file name.
+                </p>
+              </div>
               <button
                 type="submit"
                 disabled={isIndexing}
@@ -624,7 +648,7 @@ export function WorkspaceLibraryView() {
               {isIndexing || liveIngestStatus
                 ? `Elapsed: ${(liveIngestStatus?.elapsed_seconds ?? elapsedSeconds).toFixed(1)}s`
                 : "Ready"}
-              {ingestFilename ? ` · ${ingestFilename}` : ""}
+              {ingestDisplayLabel ? ` · ${ingestDisplayLabel}` : ingestFilename ? ` · ${ingestFilename}` : ""}
             </p>
             {liveIngestStatus && liveIngestStatus.status !== "idle" ? (
               <div className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--chat-thread)] p-3">

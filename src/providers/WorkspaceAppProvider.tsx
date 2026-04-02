@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import { ingestStatusFilename } from "@/lib/ingestFilename";
 import { mergeAppSettings, readAppSettings, type TtsMode } from "@/lib/appSettings";
 import {
   type Book,
@@ -97,7 +98,12 @@ export type WorkspaceAppContextValue = {
   indexMessage: string;
   elapsedSeconds: number;
   liveIngestStatus: IngestStatusPayload | null;
+  /** Sanitized key for /ingest/status and /ingest/control (matches server `safe_name`). */
   ingestFilename: string;
+  /** Human-readable label shown during indexing (custom name or file name). */
+  ingestDisplayLabel: string;
+  ingestDisplayName: string;
+  setIngestDisplayName: (v: string) => void;
   isControllingIngest: boolean;
   embeddingProvider: "ollama" | "google";
   setEmbeddingProvider: (p: "ollama" | "google") => void;
@@ -162,6 +168,8 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   const [liveIngestStatus, setLiveIngestStatus] = useState<IngestStatusPayload | null>(null);
   const [ingestPollFilename, setIngestPollFilename] = useState<string | null>(null);
   const [ingestFilename, setIngestFilename] = useState("");
+  const [ingestDisplayLabel, setIngestDisplayLabel] = useState("");
+  const [ingestDisplayName, setIngestDisplayName] = useState("");
   const [isControllingIngest, setIsControllingIngest] = useState(false);
 
   const [question, setQuestion] = useState("");
@@ -526,12 +534,18 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     setElapsedSeconds(0);
     setIndexMessage("");
     setLiveIngestStatus(null);
-    setIngestFilename(file.name);
-    setIngestPollFilename(file.name);
+    const trimmedName = ingestDisplayName.trim();
+    const statusKey = ingestStatusFilename(file, trimmedName);
+    setIngestFilename(statusKey);
+    setIngestPollFilename(statusKey);
+    setIngestDisplayLabel(trimmedName || file.name);
 
     try {
       const formData = new FormData();
       formData.append("file", file);
+      if (trimmedName) {
+        formData.append("display_name", trimmedName);
+      }
 
       const response = await fetch(
         `${API_BASE_URL}/books/ingest?embedding_provider=${embeddingProvider}`,
@@ -549,6 +563,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           ? `Indexing stopped. ${data.chunks_indexed ?? 0}/${data.total_chunks_for_run ?? 0} chunks.`
           : `Indexed ${data.filename}: ${data.pages} pages, ${data.total_chunks_for_run} chunks.`,
       );
+      setIngestDisplayName("");
       await loadBooks();
     } catch (error) {
       setIndexMessage(error instanceof Error ? error.message : "Ingestion failed.");
@@ -1117,6 +1132,9 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     elapsedSeconds,
     liveIngestStatus,
     ingestFilename,
+    ingestDisplayLabel,
+    ingestDisplayName,
+    setIngestDisplayName,
     isControllingIngest,
     embeddingProvider,
     setEmbeddingProvider,
