@@ -88,7 +88,8 @@ export type WorkspaceAppContextValue = {
   booksError: string | null;
   selectedBookId: string;
   selectedBook: Book | null;
-  loadBooks: () => Promise<void>;
+  loadBooks: () => Promise<Book[] | null>;
+  deleteBook: (bookId: string) => Promise<void>;
 
   file: File | null;
   setFile: (f: File | null) => void;
@@ -237,7 +238,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     [chatSessions, activeSessionId],
   );
 
-  const loadBooks = useCallback(async () => {
+  const loadBooks = useCallback(async (): Promise<Book[] | null> => {
     setBooksStatus("loading");
     setBooksError(null);
     try {
@@ -245,19 +246,62 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       if (!response.ok) {
         setBooksStatus("error");
         setBooksError(`Could not load library (HTTP ${response.status}). Is the API running?`);
-        return;
+        return null;
       }
       const data = await response.json();
       const loaded = Array.isArray(data?.books) ? (((data.books as Book[]) ?? []) as Book[]) : [];
       setBooks(loaded);
       setBooksStatus("ready");
+      return loaded;
     } catch {
       setBooksStatus("error");
       setBooksError(
         "Could not reach the API. Check that the backend is running and NEXT_PUBLIC_API_BASE_URL matches the server port.",
       );
+      return null;
     }
   }, []);
+
+  const deleteBook = useCallback(
+    async (bookId: string) => {
+      const response = await fetch(`${API_BASE_URL}/books/${encodeURIComponent(bookId)}`, {
+        method: "DELETE",
+      });
+      const body = (await response.json().catch(() => ({}))) as { detail?: unknown };
+      if (!response.ok) {
+        const detail =
+          typeof body.detail === "string"
+            ? body.detail
+            : `Could not delete book (HTTP ${response.status}).`;
+        throw new Error(detail);
+      }
+
+      const nextSessions = chatSessions.filter((s) => s.bookId !== bookId);
+      const lostActive =
+        Boolean(activeSessionId) &&
+        chatSessions.some((s) => s.id === activeSessionId && s.bookId === bookId);
+      const sorted = [...nextSessions].sort((a, b) => b.updatedAt - a.updatedAt);
+      const fallbackSession = sorted[0];
+
+      setChatSessions(nextSessions);
+      if (lostActive) {
+        setActiveSessionId(fallbackSession?.id ?? "");
+        if (fallbackSession) {
+          setEmbeddingProvider(fallbackSession.embeddingProvider);
+          setChatProvider(fallbackSession.chatProvider);
+        }
+      }
+
+      const loaded = await loadBooks();
+
+      setSelectedBookId((prev) => {
+        if (prev !== bookId) return prev;
+        if (lostActive && fallbackSession) return fallbackSession.bookId;
+        return loaded?.[0]?.book_id ?? "";
+      });
+    },
+    [activeSessionId, chatSessions, loadBooks],
+  );
 
   const recognitionSupported = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -1065,6 +1109,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     selectedBookId,
     selectedBook,
     loadBooks,
+    deleteBook,
     file,
     setFile,
     isIndexing,

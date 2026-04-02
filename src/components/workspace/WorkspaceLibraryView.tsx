@@ -70,6 +70,7 @@ export function WorkspaceLibraryView() {
     handleIngestControl,
     openBookPdf,
     ttsMode,
+    deleteBook,
   } = useWorkspaceApp();
   const [loadingBookListenId, setLoadingBookListenId] = useState<string | null>(null);
   const [speakingBookId, setSpeakingBookId] = useState<string | null>(null);
@@ -89,6 +90,8 @@ export function WorkspaceLibraryView() {
   const [startChar, setStartChar] = useState(1);
   const [selectedPreviewStart, setSelectedPreviewStart] = useState<number | null>(null);
   const [selectedPreviewEnd, setSelectedPreviewEnd] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deletingBookId, setDeletingBookId] = useState<string | null>(null);
   const bookAudioTokenRef = useRef(0);
   const libraryGeminiAudioRef = useRef<HTMLAudioElement | null>(null);
   const libraryGeminiObjectUrlRef = useRef<string | null>(null);
@@ -126,6 +129,26 @@ export function WorkspaceLibraryView() {
     setReadWordEnd(0);
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
+    }
+  };
+
+  const handleDeleteBook = async (book: Book) => {
+    if (
+      !window.confirm(
+        `Remove "${book.filename}" from the library? Indexed data and the PDF will be deleted unless another index still uses the same file.`,
+      )
+    ) {
+      return;
+    }
+    setDeleteError("");
+    setDeletingBookId(book.book_id);
+    try {
+      await deleteBook(book.book_id);
+      if (speakingBookId === book.book_id) stopBookAudio();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Delete failed.");
+    } finally {
+      setDeletingBookId(null);
     }
   };
 
@@ -671,6 +694,11 @@ export function WorkspaceLibraryView() {
                 {listenError}
               </p>
             ) : null}
+            {deleteError ? (
+              <p className="mt-3 rounded-lg border border-[var(--danger-border)]/30 bg-[var(--danger-bg)] px-3 py-2 text-xs text-[var(--danger)]">
+                {deleteError}
+              </p>
+            ) : null}
             {speakingBookId && readingChunks.length > 0 ? (
               <div className="mt-3 rounded-xl border border-[var(--accent)]/40 bg-[var(--accent-subtle)] p-3">
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -775,6 +803,14 @@ export function WorkspaceLibraryView() {
                           </button>
                         </>
                       )}
+                      <button
+                        type="button"
+                        disabled={deletingBookId === book.book_id || booksStatus === "loading"}
+                        onClick={() => void handleDeleteBook(book)}
+                        className="rounded-md border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-1 text-xs text-[var(--danger)] disabled:opacity-50"
+                      >
+                        {deletingBookId === book.book_id ? "Removing…" : "Delete"}
+                      </button>
                     </div>
                   </div>
                 ))
