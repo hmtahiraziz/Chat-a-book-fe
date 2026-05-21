@@ -1,5 +1,5 @@
-export type ProviderChoice = "ollama" | "google";
-export type TtsMode = "browser" | "gemini";
+export type ProviderChoice = "openai";
+export type TtsMode = "browser" | "openai";
 
 const STORAGE_KEY = "bookchat-app-settings";
 
@@ -10,8 +10,8 @@ export type AppSettings = {
 };
 
 const DEFAULTS: AppSettings = {
-  embeddingProvider: "ollama",
-  chatProvider: "ollama",
+  embeddingProvider: "openai",
+  chatProvider: "openai",
   ttsMode: "browser",
 };
 
@@ -30,19 +30,16 @@ export function readAppSettings(): AppSettings {
   if (typeof window === "undefined") return { ...DEFAULTS };
   const partial = safeParse(window.localStorage.getItem(STORAGE_KEY));
   if (!partial) return { ...DEFAULTS };
+  const tts =
+    partial.ttsMode === "openai" || partial.ttsMode === "browser"
+      ? partial.ttsMode
+      : partial.ttsMode === "gemini"
+        ? "openai"
+        : DEFAULTS.ttsMode;
   return {
-    embeddingProvider:
-      partial.embeddingProvider === "google" || partial.embeddingProvider === "ollama"
-        ? partial.embeddingProvider
-        : DEFAULTS.embeddingProvider,
-    chatProvider:
-      partial.chatProvider === "google" || partial.chatProvider === "ollama"
-        ? partial.chatProvider
-        : DEFAULTS.chatProvider,
-    ttsMode:
-      partial.ttsMode === "gemini" || partial.ttsMode === "browser"
-        ? partial.ttsMode
-        : DEFAULTS.ttsMode,
+    embeddingProvider: "openai",
+    chatProvider: "openai",
+    ttsMode: tts,
   };
 }
 

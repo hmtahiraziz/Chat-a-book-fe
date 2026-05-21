@@ -67,8 +67,6 @@ export function WorkspaceLibraryView() {
     ingestDisplayLabel,
     ingestDisplayName,
     setIngestDisplayName,
-    embeddingProvider,
-    setEmbeddingProvider,
     handleIngest,
     handleIngestControl,
     openBookPdf,
@@ -161,7 +159,7 @@ export function WorkspaceLibraryView() {
     let offset = 0;
     let total = Number.POSITIVE_INFINITY;
     const parts: string[] = [];
-    const embeddingProvider = books.find((b) => b.book_id === bookId)?.embedding_provider ?? "ollama";
+    const embeddingProvider = books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
     while (offset < total) {
       const params = `offset=${offset}&limit=${limit}&embedding_provider=${embeddingProvider}`;
       const endpoints = [
@@ -277,7 +275,7 @@ export function WorkspaceLibraryView() {
       setReadingIndex(startChunkIndex);
       setReadingBookLabel(book.filename);
 
-      if (ttsMode === "gemini") {
+      if (ttsMode === "openai") {
         let idx = startChunkIndex;
         while (idx < parts.length) {
           if (bookAudioTokenRef.current !== token) return;
@@ -554,30 +552,6 @@ export function WorkspaceLibraryView() {
             <h2 className="text-sm font-semibold text-[var(--text)]">
               <span className="text-[var(--accent-warm)]">Ingest</span> new PDF
             </h2>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setEmbeddingProvider("ollama")}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                  embeddingProvider === "ollama"
-                    ? "bg-[var(--accent)] text-[var(--bg)]"
-                    : "border border-[var(--border)] text-[var(--text)]"
-                }`}
-              >
-                Ollama embeddings
-              </button>
-              <button
-                type="button"
-                onClick={() => setEmbeddingProvider("google")}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                  embeddingProvider === "google"
-                    ? "bg-[var(--accent)] text-[var(--bg)]"
-                    : "border border-[var(--border)] text-[var(--text)]"
-                }`}
-              >
-                Google embeddings
-              </button>
-            </div>
             <form className="mt-4 space-y-3" onSubmit={handleIngest}>
               <input
                 type="file"

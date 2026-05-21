@@ -19,8 +19,6 @@ export function ChatThreadPanel() {
     activeSessionId,
     activeSession,
     isAsking,
-    chatProvider,
-    setChatProvider,
     question,
     setQuestion,
     k,
@@ -105,31 +103,6 @@ export function ChatThreadPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setChatProvider("ollama")}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            chatProvider === "ollama"
-              ? "bg-[var(--accent)] text-[var(--bg)]"
-              : "border border-[var(--border)] text-[var(--text)] hover:border-[var(--border-strong)]"
-          }`}
-        >
-          Ollama Chat
-        </button>
-        <button
-          type="button"
-          onClick={() => setChatProvider("google")}
-          className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-            chatProvider === "google"
-              ? "bg-[var(--accent)] text-[var(--bg)]"
-              : "border border-[var(--border)] text-[var(--text)] hover:border-[var(--border-strong)]"
-          }`}
-        >
-          Google Chat
-        </button>
-      </div>
-
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}

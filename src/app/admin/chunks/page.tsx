@@ -13,12 +13,12 @@ type Book = {
   chunks: number;
   chapters: string[];
   indexed_at: number;
-  embedding_provider?: "ollama" | "google";
+  embedding_provider?: "openai";
 };
 
 type AdminChunk = {
   ordinal: number;
-  faiss_index: number;
+  chunk_index: number;
   doc_id: string;
   text: string;
   metadata: Record<string, unknown>;
@@ -36,7 +36,7 @@ type ChunksResponse = {
 };
 
 function chunkRowKey(c: AdminChunk): string {
-  return `${c.faiss_index}::${c.doc_id}`;
+  return `${c.chunk_index}::${c.doc_id}`;
 }
 
 function formatMetadataValue(value: unknown): string {
@@ -54,7 +54,7 @@ function formatMetadataValue(value: unknown): string {
 export default function AdminChunksPage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [bookId, setBookId] = useState("");
-  const [embeddingProvider, setEmbeddingProvider] = useState<"ollama" | "google">("ollama");
+  const embeddingProvider = "openai" as const;
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState(25);
   const [data, setData] = useState<ChunksResponse | null>(null);
@@ -186,7 +186,7 @@ export default function AdminChunksPage() {
       <header className="mb-8 border-b border-[var(--border)] pb-6">
         <h1 className="text-xl font-semibold text-[var(--text)]">Chunk inspector</h1>
         <p className="mt-1 max-w-2xl text-sm text-[var(--muted)]">
-          Human-readable text stored in the FAISS index for the selected book and embedding provider.
+          Human-readable text stored in Pinecone for the selected book and embedding provider.
           Raw vectors are not exposed. If the API returns 401, set{" "}
           <code className="rounded bg-[var(--panel-soft)] px-1 text-xs">ADMIN_API_TOKEN</code> on the
           server and optionally{" "}
@@ -217,28 +217,6 @@ export default function AdminChunksPage() {
               </option>
             ))}
           </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-[var(--muted)]">Embeddings</label>
-          <div className="mt-1 flex gap-2">
-            {(["ollama", "google"] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => {
-                  setEmbeddingProvider(p);
-                  setOffset(0);
-                }}
-                className={`rounded-md px-3 py-1.5 text-xs capitalize ${
-                  embeddingProvider === p
-                    ? "bg-[var(--accent)] text-[var(--bg)]"
-                    : "border border-[var(--border)] text-[var(--text)]"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
         </div>
         <div>
           <label className="block text-xs font-medium text-[var(--muted)]">Page size</label>
@@ -350,7 +328,7 @@ export default function AdminChunksPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
                     <span className="font-mono font-semibold text-[var(--accent)]">#{c.ordinal}</span>
-                    <span>faiss {c.faiss_index}</span>
+                    <span>chunk {c.chunk_index}</span>
                     <span>{c.char_count} chars</span>
                     {c.metadata.page != null ? (
                       <span className="rounded bg-[var(--panel)] px-2 py-0.5 text-[var(--text)]">

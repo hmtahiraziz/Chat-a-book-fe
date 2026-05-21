@@ -5,7 +5,7 @@ export type Book = {
   chunks: number;
   chapters: string[];
   indexed_at: number;
-  embedding_provider?: "ollama" | "google";
+  embedding_provider?: "openai";
 };
 
 export type ChatSource = {
@@ -33,8 +33,8 @@ export type ChatSession = {
   id: string;
   bookId: string;
   bookLabel: string;
-  embeddingProvider: "ollama" | "google";
-  chatProvider: "ollama" | "google";
+  embeddingProvider: "openai";
+  chatProvider: "openai";
   title: string;
   messages: StoredMessage[];
   updatedAt: number;
@@ -71,10 +71,10 @@ export function readSessionsFromStorage(): ChatSession[] {
     const normalized: ChatSession[] = [];
     for (const item of data) {
       if (!item || typeof item !== "object") continue;
-      const x = item as Partial<ChatSession> & { messages?: unknown };
-      if (!x.id || !x.bookId) continue;
-      const msgs = Array.isArray(x.messages)
-        ? x.messages
+      const session = item as Partial<ChatSession> & { messages?: unknown };
+      if (!session.id || !session.bookId) continue;
+      const msgs = Array.isArray(session.messages)
+        ? session.messages
             .filter((m) => m && typeof m === "object")
             .map((m) => {
               const mm = m as Partial<StoredMessage>;
@@ -92,16 +92,16 @@ export function readSessionsFromStorage(): ChatSession[] {
             })
         : [];
       normalized.push({
-        id: String(x.id),
-        bookId: String(x.bookId),
-        bookLabel: String(x.bookLabel ?? x.bookId),
-        embeddingProvider: x.embeddingProvider === "google" ? "google" : "ollama",
-        chatProvider: x.chatProvider === "google" ? "google" : "ollama",
-        title: String(x.title ?? "New chat"),
+        id: String(session.id),
+        bookId: String(session.bookId),
+        bookLabel: String(session.bookLabel ?? session.bookId),
+        embeddingProvider: "openai",
+        chatProvider: "openai",
+        title: String(session.title ?? "New chat"),
         messages: msgs,
         updatedAt:
-          typeof x.updatedAt === "number" && Number.isFinite(x.updatedAt)
-            ? x.updatedAt
+          typeof session.updatedAt === "number" && Number.isFinite(session.updatedAt)
+            ? session.updatedAt
             : Date.now(),
       });
     }
@@ -217,4 +217,3 @@ export function speechCleanText(text: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
-

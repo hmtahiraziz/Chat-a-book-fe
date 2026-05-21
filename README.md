@@ -7,7 +7,7 @@ Next.js UI for the BookChat LangChain API (`ai-book-chatbot-v2`).
 - PDF ingest for `/books/ingest`
 - Library explorer for indexed books
 - Chat workspace with RAG, sources, and sessions
-- Settings: Ollama/Gemini for embeddings & chat; browser or Gemini TTS
+- Settings: OpenAI on the server; browser or OpenAI TTS
 - Chunk inspector (`/admin/chunks`)
 
 ## Prerequisites

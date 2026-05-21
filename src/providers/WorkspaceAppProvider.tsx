@@ -105,8 +105,8 @@ export type WorkspaceAppContextValue = {
   ingestDisplayName: string;
   setIngestDisplayName: (v: string) => void;
   isControllingIngest: boolean;
-  embeddingProvider: "ollama" | "google";
-  setEmbeddingProvider: (p: "ollama" | "google") => void;
+  embeddingProvider: "openai";
+  setEmbeddingProvider: (p: "openai") => void;
   handleIngest: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   handleIngestControl: (action: "pause" | "resume" | "stop") => Promise<void>;
 
@@ -123,8 +123,8 @@ export type WorkspaceAppContextValue = {
   setQuestion: (q: string) => void;
   k: number;
   setK: (k: number) => void;
-  chatProvider: "ollama" | "google";
-  setChatProvider: (p: "ollama" | "google") => void;
+  chatProvider: "openai";
+  setChatProvider: (p: "openai") => void;
   handleAsk: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   isAsking: boolean;
 
@@ -174,17 +174,17 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
 
   const [question, setQuestion] = useState("");
   const [k, setK] = useState(8);
-  const [embeddingProvider, setEmbeddingProviderInner] = useState<"ollama" | "google">("ollama");
-  const [chatProvider, setChatProviderInner] = useState<"ollama" | "google">("ollama");
+  const [embeddingProvider, setEmbeddingProviderInner] = useState<"openai">("openai");
+  const [chatProvider, setChatProviderInner] = useState<"openai">("openai");
   const [ttsMode, setTtsModeInner] = useState<TtsMode>(() => readAppSettings().ttsMode);
   const [isAsking, setIsAsking] = useState(false);
 
-  const setEmbeddingProvider = useCallback((p: "ollama" | "google") => {
+  const setEmbeddingProvider = useCallback((p: "openai") => {
     setEmbeddingProviderInner(p);
     mergeAppSettings({ embeddingProvider: p });
   }, []);
 
-  const setChatProvider = useCallback((p: "ollama" | "google") => {
+  const setChatProvider = useCallback((p: "openai") => {
     setChatProviderInner(p);
     mergeAppSettings({ chatProvider: p });
   }, []);
@@ -216,23 +216,23 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   const dictationBaseRef = useRef("");
   const pdfAudioTokenRef = useRef(0);
   const pdfPreviewRef = useRef<HTMLParagraphElement | null>(null);
-  const geminiSpeakTokenRef = useRef(0);
-  const geminiAudioRef = useRef<HTMLAudioElement | null>(null);
-  const geminiObjectUrlRef = useRef<string | null>(null);
+  const serverTtsSpeakTokenRef = useRef(0);
+  const serverTtsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const serverTtsObjectUrlRef = useRef<string | null>(null);
 
-  const cleanupGeminiAudio = useCallback(() => {
-    if (geminiAudioRef.current) {
+  const cleanupServerTtsAudio = useCallback(() => {
+    if (serverTtsAudioRef.current) {
       try {
-        geminiAudioRef.current.pause();
+        serverTtsAudioRef.current.pause();
       } catch {
         // noop
       }
-      geminiAudioRef.current.src = "";
-      geminiAudioRef.current = null;
+      serverTtsAudioRef.current.src = "";
+      serverTtsAudioRef.current = null;
     }
-    if (geminiObjectUrlRef.current) {
-      URL.revokeObjectURL(geminiObjectUrlRef.current);
-      geminiObjectUrlRef.current = null;
+    if (serverTtsObjectUrlRef.current) {
+      URL.revokeObjectURL(serverTtsObjectUrlRef.current);
+      serverTtsObjectUrlRef.current = null;
     }
   }, []);
 
@@ -257,7 +257,11 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         return null;
       }
       const data = await response.json();
-      const loaded = Array.isArray(data?.books) ? (((data.books as Book[]) ?? []) as Book[]) : [];
+      const raw = Array.isArray(data?.books) ? ((data.books as Book[]) ?? []) : [];
+      const loaded: Book[] = raw.map((b) => ({
+        ...b,
+        embedding_provider: "openai" as const,
+      }));
       setBooks(loaded);
       setBooksStatus("ready");
       return loaded;
@@ -317,28 +321,28 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const stopSpeaking = useCallback(() => {
-    geminiSpeakTokenRef.current += 1;
-    cleanupGeminiAudio();
+    serverTtsSpeakTokenRef.current += 1;
+    cleanupServerTtsAudio();
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
     setSpeakingMessageId(null);
-  }, [cleanupGeminiAudio]);
+  }, [cleanupServerTtsAudio]);
 
   const speakText = useCallback(
     (text: string, messageId?: string) => {
       if (typeof window === "undefined") return;
       const payload = speechCleanText(text);
       if (!payload) return;
-      geminiSpeakTokenRef.current += 1;
-      const token = geminiSpeakTokenRef.current;
+      serverTtsSpeakTokenRef.current += 1;
+      const token = serverTtsSpeakTokenRef.current;
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
-      cleanupGeminiAudio();
+      cleanupServerTtsAudio();
       if (messageId) setSpeakingMessageId(messageId);
 
-      if (ttsMode === "gemini") {
+      if (ttsMode === "openai") {
         void (async () => {
           try {
             const response = await fetch(`${API_BASE_URL}/tts`, {
@@ -351,23 +355,23 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
               throw new Error(err?.detail ?? `TTS failed (HTTP ${response.status}).`);
             }
             const blob = await response.blob();
-            if (token !== geminiSpeakTokenRef.current) return;
+            if (token !== serverTtsSpeakTokenRef.current) return;
             const url = URL.createObjectURL(blob);
-            geminiObjectUrlRef.current = url;
+            serverTtsObjectUrlRef.current = url;
             const audio = new Audio(url);
-            geminiAudioRef.current = audio;
+            serverTtsAudioRef.current = audio;
             audio.onended = () => {
-              cleanupGeminiAudio();
+              cleanupServerTtsAudio();
               setSpeakingMessageId((prev) => (messageId && prev === messageId ? null : prev));
             };
             audio.onerror = () => {
-              cleanupGeminiAudio();
+              cleanupServerTtsAudio();
               setSpeakingMessageId((prev) => (messageId && prev === messageId ? null : prev));
             };
             await audio.play();
           } catch {
-            if (token === geminiSpeakTokenRef.current) {
-              cleanupGeminiAudio();
+            if (token === serverTtsSpeakTokenRef.current) {
+              cleanupServerTtsAudio();
               setSpeakingMessageId(null);
             }
           }
@@ -387,7 +391,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       };
       window.speechSynthesis.speak(utter);
     },
-    [cleanupGeminiAudio, ttsMode],
+    [cleanupServerTtsAudio, ttsMode],
   );
 
   useEffect(() => {
@@ -437,7 +441,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         pdfAudioTokenRef.current += 1;
         setPdfAudioPlaying(false);
         setPdfAudioLoading(false);
-        cleanupGeminiAudio();
+        cleanupServerTtsAudio();
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
           window.speechSynthesis.cancel();
         }
@@ -449,7 +453,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
     };
-  }, [pdfReaderModal, cleanupGeminiAudio]);
+  }, [pdfReaderModal, cleanupServerTtsAudio]);
 
   useEffect(() => {
     return () => {
@@ -460,13 +464,13 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           // noop
         }
       }
-      cleanupGeminiAudio();
+      cleanupServerTtsAudio();
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
       pdfAudioTokenRef.current += 1;
     };
-  }, [cleanupGeminiAudio]);
+  }, [cleanupServerTtsAudio]);
 
   useEffect(() => {
     if (!isIndexing || indexStartedAtMs === null) return;
@@ -659,7 +663,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     const token = ADMIN_API_TOKEN;
     const limit = 200;
     const embeddingProvider =
-      books.find((b) => b.book_id === bookId)?.embedding_provider ?? "ollama";
+      books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
     let offset = 0;
     let total = Number.POSITIVE_INFINITY;
     const parts: string[] = [];
@@ -741,11 +745,11 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     setPdfAudioChunkIndex(0);
     setPdfAudioWordStart(0);
     setPdfAudioWordEnd(0);
-    cleanupGeminiAudio();
+    cleanupServerTtsAudio();
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
-  }, [cleanupGeminiAudio]);
+  }, [cleanupServerTtsAudio]);
 
   const startPdfAudio = useCallback(
     async (opts?: { startChunkIndex?: number; startCharIndex?: number }) => {
@@ -781,7 +785,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         setPdfAudioWordStart(startCharIndex);
         setPdfAudioWordEnd(Math.min(startCharIndex + 1, parts[startChunkIndex].length));
 
-        if (ttsMode === "gemini") {
+        if (ttsMode === "openai") {
           let idx = startChunkIndex;
           while (idx < parts.length) {
             if (pdfAudioTokenRef.current !== token) return;
@@ -808,23 +812,23 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
               const blob = await response.blob();
               if (pdfAudioTokenRef.current !== token) return;
               const url = URL.createObjectURL(blob);
-              geminiObjectUrlRef.current = url;
+              serverTtsObjectUrlRef.current = url;
               const audio = new Audio(url);
-              geminiAudioRef.current = audio;
+              serverTtsAudioRef.current = audio;
               await new Promise<void>((resolve, reject) => {
                 audio.onended = () => {
-                  cleanupGeminiAudio();
+                  cleanupServerTtsAudio();
                   resolve();
                 };
                 audio.onerror = () => {
-                  cleanupGeminiAudio();
+                  cleanupServerTtsAudio();
                   reject(new Error("Audio playback error."));
                 };
                 void audio.play().catch(reject);
               });
             } catch (e) {
               if (pdfAudioTokenRef.current === token) {
-                setPdfAudioError(e instanceof Error ? e.message : "Gemini audio failed.");
+                setPdfAudioError(e instanceof Error ? e.message : "Server TTS failed.");
                 setPdfAudioPlaying(false);
                 setPdfAudioWordStart(0);
                 setPdfAudioWordEnd(0);
@@ -903,7 +907,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         if (pdfAudioTokenRef.current === token) setPdfAudioLoading(false);
       }
     },
-    [pdfReaderModal, fetchBookChunksForAudio, stopPdfAudio, ttsMode, cleanupGeminiAudio],
+    [pdfReaderModal, fetchBookChunksForAudio, stopPdfAudio, ttsMode, cleanupServerTtsAudio],
   );
 
   useEffect(() => {
