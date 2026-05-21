@@ -2,18 +2,19 @@
 
 import { useEffect, useState } from "react";
 
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { API_BASE_URL } from "@/lib/api";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
-import type { ProviderChoice, TtsMode } from "@/lib/appSettings";
+import type { TtsMode } from "@/lib/appSettings";
 
 type ServerInfoPayload = {
-  vector_store: "faiss" | "pinecone";
-  vector_store_env: string;
+  vector_store: "pinecone";
   vector_store_label: string;
+  library_store?: string;
+  library_store_label?: string;
   pinecone_indexes?: {
     default: string | null;
-    ollama: string | null;
-    google: string | null;
+    openai: string | null;
   } | null;
 };
 
@@ -55,22 +56,8 @@ function Segmented<T extends string>({
   );
 }
 
-function envModeLabel(mode: string): string {
-  if (mode === "auto") return "Auto (Pinecone if API key + index are set, else FAISS)";
-  if (mode === "pinecone") return "Forced: Pinecone";
-  if (mode === "faiss") return "Forced: FAISS";
-  return mode;
-}
-
 export default function SettingsPage() {
-  const {
-    embeddingProvider,
-    setEmbeddingProvider,
-    chatProvider,
-    setChatProvider,
-    ttsMode,
-    setTtsMode,
-  } = useWorkspaceApp();
+  const { ttsMode, setTtsMode } = useWorkspaceApp();
 
   const [serverInfo, setServerInfo] = useState<ServerInfoPayload | null>(null);
   const [serverInfoError, setServerInfoError] = useState<string | null>(null);
@@ -112,44 +99,69 @@ export default function SettingsPage() {
       <header className="mb-8">
         <h1 className="font-display text-3xl tracking-tight text-[var(--text)]">Settings</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          Choose how the app talks to models and how spoken playback works. Preferences are saved in this
-          browser.
+          Configure appearance and spoken playback. Embeddings and chat use OpenAI on the API server.
         </p>
       </header>
 
       <div className="space-y-10">
         <section
           className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 md:p-5"
-          aria-labelledby="vector-db-heading"
+          aria-labelledby="appearance-heading"
         >
           <h2
-            id="vector-db-heading"
+            id="appearance-heading"
             className="text-sm font-semibold uppercase tracking-wider text-[var(--muted)]"
           >
-            Backend vector database
+            Appearance
+          </h2>
+          <p className="mt-1 text-xs text-[var(--faint)]">
+            Dark mode uses a black canvas; light mode uses a bright canvas. Both share the same
+            purple accent (#571FE9) and background glow.
+          </p>
+          <div className="mt-4">
+            <ThemeToggle variant="segmented" />
+          </div>
+        </section>
+
+        <section
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 md:p-5"
+          aria-labelledby="backend-storage-heading"
+        >
+          <h2
+            id="backend-storage-heading"
+            className="text-sm font-semibold uppercase tracking-wider text-[var(--muted)]"
+          >
+            Backend storage
           </h2>
           <p className="mt-1 text-xs text-[var(--faint)]">
             Configured on the API server (<span className="font-mono text-[var(--muted)]">{API_BASE_URL}</span>
-            ). This is where book embeddings are stored for retrieval.
+            ).
           </p>
           {serverInfoLoading ? (
             <p className="mt-3 text-sm text-[var(--muted)]">Loading…</p>
           ) : serverInfoError ? (
             <p className="mt-3 text-sm text-[var(--warning)]">{serverInfoError}</p>
           ) : serverInfo ? (
-            <div className="mt-4 space-y-3 text-sm text-[var(--text)]">
+            <div className="mt-4 space-y-4 text-sm text-[var(--text)]">
+              {serverInfo.library_store_label ? (
+                <div>
+                  <span className="text-[var(--muted)]">Library: </span>
+                  <span className="font-medium">{serverInfo.library_store_label}</span>
+                  {serverInfo.library_store ? (
+                    <span className="ml-2 rounded-md bg-[var(--chat-thread)] px-2 py-0.5 font-mono text-[11px] text-[var(--muted)]">
+                      {serverInfo.library_store}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <div>
-                <span className="text-[var(--muted)]">Active store: </span>
+                <span className="text-[var(--muted)]">Vectors: </span>
                 <span className="font-medium">{serverInfo.vector_store_label}</span>
                 <span className="ml-2 rounded-md bg-[var(--chat-thread)] px-2 py-0.5 font-mono text-[11px] text-[var(--muted)]">
                   {serverInfo.vector_store}
                 </span>
               </div>
-              <p className="text-xs leading-relaxed text-[var(--muted)]">
-                <span className="text-[var(--faint)]">Config mode: </span>
-                {envModeLabel(serverInfo.vector_store_env)}
-              </p>
-              {serverInfo.vector_store === "pinecone" && serverInfo.pinecone_indexes ? (
+              {serverInfo.pinecone_indexes ? (
                 <div className="overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--chat-thread)]">
                   <table className="w-full min-w-[280px] text-left text-xs">
                     <thead>
@@ -163,63 +175,17 @@ export default function SettingsPage() {
                         <td className="px-3 py-2 text-[var(--muted)]">Default / fallback</td>
                         <td className="px-3 py-2">{serverInfo.pinecone_indexes.default ?? "—"}</td>
                       </tr>
-                      <tr className="border-b border-[var(--border)]/60">
-                        <td className="px-3 py-2 text-[var(--muted)]">Ollama embeddings</td>
-                        <td className="px-3 py-2">{serverInfo.pinecone_indexes.ollama ?? "—"}</td>
-                      </tr>
                       <tr>
-                        <td className="px-3 py-2 text-[var(--muted)]">Google embeddings</td>
-                        <td className="px-3 py-2">{serverInfo.pinecone_indexes.google ?? "—"}</td>
+                        <td className="px-3 py-2 text-[var(--muted)]">OpenAI embeddings</td>
+                        <td className="px-3 py-2">{serverInfo.pinecone_indexes.openai ?? "—"}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               ) : null}
-              {serverInfo.vector_store === "faiss" ? (
-                <p className="text-xs text-[var(--muted)]">
-                  Indexes live under the API&apos;s <code className="rounded bg-[var(--chat-thread)] px-1">data/indices/</code>{" "}
-                  directory on disk.
-                </p>
-              ) : null}
             </div>
           ) : null}
         </section>
-
-        <Segmented<ProviderChoice>
-          label="Embeddings (indexing & retrieval)"
-          value={embeddingProvider}
-          onChange={setEmbeddingProvider}
-          options={[
-            {
-              value: "ollama",
-              title: "Ollama",
-              hint: "Local embeddings via your Ollama server (see backend .env).",
-            },
-            {
-              value: "google",
-              title: "Google Gemini",
-              hint: "Uses Gemini embedding models; requires GEMINI_API_KEY on the API server.",
-            },
-          ]}
-        />
-
-        <Segmented<ProviderChoice>
-          label="Chat & summaries"
-          value={chatProvider}
-          onChange={setChatProvider}
-          options={[
-            {
-              value: "ollama",
-              title: "Ollama",
-              hint: "Local LLM for answers and summaries.",
-            },
-            {
-              value: "google",
-              title: "Google Gemini",
-              hint: "Gemini for chat and book summaries.",
-            },
-          ]}
-        />
 
         <Segmented<TtsMode>
           label="Text-to-speech"
@@ -232,17 +198,12 @@ export default function SettingsPage() {
               hint: "Web Speech API (offline-capable where the OS supports it).",
             },
             {
-              value: "gemini",
-              title: "Gemini native speech",
-              hint: "Higher-quality voice via the API (uses GEMINI_API_KEY on the server; network required).",
+              value: "openai",
+              title: "OpenAI speech",
+              hint: "Voice via the API (uses OPENAI_API_KEY on the server; network required).",
             },
           ]}
         />
-
-        <p className="rounded-lg border border-[var(--border)] bg-[var(--panel-soft)] px-4 py-3 text-[11px] leading-relaxed text-[var(--muted)]">
-          Workspace and chat still let you switch providers quickly; those controls update the same saved
-          defaults. Each chat session remembers the providers used when it was created.
-        </p>
       </div>
     </div>
   );

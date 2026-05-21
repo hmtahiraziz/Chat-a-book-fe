@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { API_BASE_URL } from "@/lib/api";
 
 const NAV = [
@@ -105,11 +106,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] md:flex">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[300] focus:rounded-lg focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-[var(--bg)]"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[300] focus:rounded-lg focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-white"
       >
         Skip to content
       </a>
-      <aside className="z-50 flex w-full shrink-0 flex-col border-b border-[var(--border-strong)]/40 bg-[var(--panel)] md:fixed md:left-0 md:top-0 md:h-screen md:w-64 md:border-b-0 md:border-r md:shadow-[4px_0_24px_rgba(0,0,0,0.2)]">
+      <aside className="z-50 flex w-full shrink-0 flex-col border-b border-[var(--border-strong)]/40 bg-[var(--panel)] md:fixed md:left-0 md:top-0 md:h-screen md:w-64 md:border-b-0 md:border-r md:shadow-[var(--shadow-sidebar)]">
         <div className="border-b border-[var(--border)] px-4 py-5">
           <Link
             href="/workspace"
@@ -161,8 +162,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <div className="hidden border-t border-[var(--border)] px-3 py-3 text-[10px] text-[var(--faint)] md:block">
-          LangChain · FAISS
+        <div className="border-t border-[var(--border)] p-3">
+          <ThemeToggle className="w-full justify-center md:justify-start" />
+          <p className="mt-3 hidden text-[10px] text-[var(--faint)] md:block">
+            LangChain · Pinecone · MongoDB
+          </p>
         </div>
       </aside>
       <div

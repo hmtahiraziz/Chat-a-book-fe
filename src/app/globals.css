@@ -1,51 +1,152 @@
 @import "tailwindcss";
 
 /*
-  Solid surfaces only — no background gradients.
-  Tokens support a modern, restrained multi-accent dark UI.
+  Theme tokens — purple brand (#571FE9) with light/dark modes.
+  Toggle via data-theme on <html> (see ThemeProvider + themeInitScript).
 */
+
+/* Shared brand & status (theme-agnostic hues) */
 :root {
-  /* Canvas & elevation */
-  --bg: #0b0d12;
-  --surface-raised: #12161e;
-  --surface-card: #181c27;
-  --surface-input: #10141c;
-  --surface-muted: #1e2430;
+  --brand: #571fe9;
+  --brand-hover: #6b3bed;
+  --brand-press: #4618c4;
+  --brand-muted: #4a1bc9;
+  --brand-subtle-alpha: 0.14;
 
-  --border: #2c3344;
-  --border-strong: #3d4658;
+  --success: #5cb88a;
+  --warning: #d9a66a;
+  --danger: #e06b6b;
 
-  /* Typography */
-  --text: #eef1f6;
-  --muted: #9098aa;
-  --faint: #5c6478;
+  /* Same purple hero glow in light and dark */
+  --hero-glow: radial-gradient(
+    ellipse 75% 55% at 88% 42%,
+    rgba(87, 31, 233, 0.42) 0%,
+    rgba(87, 31, 233, 0.12) 38%,
+    transparent 72%
+  );
+}
 
-  /* Primary — cool cyan-blue (actions, focus, assistant bar) */
-  --accent: #6db3d4;
-  --accent-hover: #84c4e0;
-  --accent-press: #5599b8;
-  --accent-muted: #3d7a96;
-  --accent-subtle: rgba(109, 179, 212, 0.14);
+/* Dark — black canvas, purple accent, soft hero glow (reference layout) */
+[data-theme="dark"] {
+  --bg: #000000;
+  --surface-raised: #0a0a0a;
+  --surface-card: #111111;
+  --surface-input: #0d0d0d;
+  --surface-muted: #1a1a1a;
 
-  /* Secondary — warm sand (highlights, labels, optional emphasis) */
+  --border: #2a2a2a;
+  --border-strong: #3d3d3d;
+
+  --text: #ffffff;
+  --muted: #a3a3a3;
+  --faint: #6b6b6b;
+
+  --accent: var(--brand);
+  --accent-hover: var(--brand-hover);
+  --accent-press: var(--brand-press);
+  --accent-muted: var(--brand-muted);
+  --accent-subtle: rgba(87, 31, 233, 0.18);
   --accent-warm: #c4a882;
   --accent-warm-subtle: rgba(196, 168, 130, 0.12);
 
-  /* Status */
-  --success: #7cb89a;
-  --warning: #d9a66a;
-  --warning-bg: rgba(217, 166, 106, 0.12);
-  --danger: #d67878;
-  --danger-bg: rgba(214, 120, 120, 0.1);
-  --danger-border: rgba(214, 120, 120, 0.45);
+  --warning-bg: rgba(217, 166, 106, 0.14);
+  --danger-bg: rgba(224, 107, 107, 0.12);
+  --danger-border: rgba(224, 107, 107, 0.45);
 
-  /* Aliases used across the app */
   --panel: var(--surface-raised);
   --panel-soft: var(--surface-card);
   --chat-thread: var(--surface-input);
-  --chat-user: #252b3a;
-  --chat-assistant: #161b25;
+  --chat-user: #1f1f1f;
+  --chat-assistant: #141414;
   --chat-assistant-bar: var(--accent);
+
+  --shadow-sidebar: 4px 0 32px rgba(0, 0, 0, 0.55);
+  --accent-ring: rgba(87, 31, 233, 0.45);
+}
+
+/* Light — white canvas, same purple accent, softer glow */
+[data-theme="light"] {
+  --bg: #ffffff;
+  --surface-raised: #f7f7f8;
+  --surface-card: #ffffff;
+  --surface-input: #f3f3f5;
+  --surface-muted: #ebebef;
+
+  --border: #e4e4e8;
+  --border-strong: #cfcfd6;
+
+  --text: #1a1a1a;
+  --muted: #5c5c66;
+  --faint: #8a8a96;
+
+  --accent: var(--brand);
+  --accent-hover: var(--brand-hover);
+  --accent-press: var(--brand-press);
+  --accent-muted: var(--brand-muted);
+  --accent-subtle: rgba(87, 31, 233, 0.1);
+  --accent-warm: #9a7d52;
+  --accent-warm-subtle: rgba(154, 125, 82, 0.1);
+
+  --warning-bg: rgba(217, 166, 106, 0.16);
+  --danger-bg: rgba(224, 107, 107, 0.1);
+  --danger-border: rgba(224, 107, 107, 0.4);
+
+  --panel: var(--surface-raised);
+  --panel-soft: var(--surface-card);
+  --chat-thread: var(--surface-input);
+  --chat-user: #ede9fe;
+  --chat-assistant: #f7f7f8;
+  --chat-assistant-bar: var(--accent);
+
+  --shadow-sidebar: 4px 0 24px rgba(87, 31, 233, 0.08);
+  --accent-ring: rgba(87, 31, 233, 0.35);
+
+  --success: #3d9a6e;
+}
+
+/* Fallback before theme script runs */
+html:not([data-theme]) {
+  color-scheme: dark;
+}
+
+html:not([data-theme]),
+[data-theme="dark"] {
+  --bg: #000000;
+  --surface-raised: #0a0a0a;
+  --surface-card: #111111;
+  --surface-input: #0d0d0d;
+  --surface-muted: #1a1a1a;
+  --border: #2a2a2a;
+  --border-strong: #3d3d3d;
+  --text: #ffffff;
+  --muted: #a3a3a3;
+  --faint: #6b6b6b;
+  --accent: var(--brand);
+  --accent-hover: var(--brand-hover);
+  --accent-press: var(--brand-press);
+  --accent-muted: var(--brand-muted);
+  --accent-subtle: rgba(87, 31, 233, 0.18);
+  --accent-warm: #c4a882;
+  --accent-warm-subtle: rgba(196, 168, 130, 0.12);
+  --warning-bg: rgba(217, 166, 106, 0.14);
+  --danger-bg: rgba(224, 107, 107, 0.12);
+  --danger-border: rgba(224, 107, 107, 0.45);
+  --panel: var(--surface-raised);
+  --panel-soft: var(--surface-card);
+  --chat-thread: var(--surface-input);
+  --chat-user: #1f1f1f;
+  --chat-assistant: #141414;
+  --chat-assistant-bar: var(--accent);
+  --shadow-sidebar: 4px 0 32px rgba(0, 0, 0, 0.55);
+  --accent-ring: rgba(87, 31, 233, 0.45);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
 }
 
 * {
@@ -55,6 +156,9 @@
 body {
   margin: 0;
   background-color: var(--bg);
+  background-image: var(--hero-glow);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
   color: var(--text);
   font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -67,7 +171,6 @@ h3,
   font-weight: 600;
 }
 
-/* Visible keyboard focus — matches accent tokens */
 :focus {
   outline: none;
 }
@@ -117,7 +220,6 @@ a:focus:not(:focus-visible) {
   }
 }
 
-/* Skeleton shimmer (disabled when user prefers reduced motion) */
 @keyframes skeleton-shimmer {
   0% {
     background-position: 100% 0;
@@ -147,13 +249,13 @@ a:focus:not(:focus-visible) {
 
 @keyframes voice-ring {
   0% {
-    box-shadow: 0 0 0 0 rgba(109, 179, 212, 0.45);
+    box-shadow: 0 0 0 0 var(--accent-ring);
   }
   70% {
-    box-shadow: 0 0 0 10px rgba(109, 179, 212, 0);
+    box-shadow: 0 0 0 10px rgba(87, 31, 233, 0);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(109, 179, 212, 0);
+    box-shadow: 0 0 0 0 rgba(87, 31, 233, 0);
   }
 }
 
@@ -178,7 +280,7 @@ a:focus:not(:focus-visible) {
   position: absolute;
   inset: -6px;
   border-radius: 9999px;
-  border: 1px solid rgba(109, 179, 212, 0.5);
+  border: 1px solid var(--accent-ring);
   animation: voice-ring 1.2s ease-out infinite;
 }
 
