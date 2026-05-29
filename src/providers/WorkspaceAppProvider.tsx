@@ -12,6 +12,12 @@ import {
 } from "react";
 
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import {
+  createChatSession,
+  deleteChatSession,
+  fetchChatSessions,
+  replaceChatSession,
+} from "@/lib/chatSessionsApi";
 import { ingestStatusFilename } from "@/lib/ingestFilename";
 import { mergeAppSettings, readAppSettings, type TtsMode } from "@/lib/appSettings";
 import {
@@ -21,11 +27,11 @@ import {
   type IngestStatusPayload,
   type PdfReaderModal,
   type StoredMessage,
+  CHAT_STORAGE_KEY,
   readSessionsFromStorage,
   sessionPreviewTitle,
   speechCleanText,
   TERMINAL_INGEST_STATUSES,
-  writeSessionsToStorage,
   newMessageId,
 } from "@/components/workspace/domain";
 
@@ -195,6 +201,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const [chatSessionsHydrated, setChatSessionsHydrated] = useState(false);
+  const [chatSessionsError, setChatSessionsError] = useState<string | null>(null);
   const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState("");
 
@@ -398,30 +405,54 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     void loadBooks();
   }, [loadBooks]);
 
-  useEffect(() => {
-    const prefs = readAppSettings();
-    setTtsModeInner(prefs.ttsMode);
-    const loaded = readSessionsFromStorage();
-    loaded.sort((a, b) => b.updatedAt - a.updatedAt);
-    setChatSessions(loaded);
-    if (loaded.length > 0) {
-      setActiveSessionId(loaded[0].id);
-      const first = loaded[0];
-      setSelectedBookId(first?.bookId ?? "");
-      setEmbeddingProviderInner(first?.embeddingProvider ?? prefs.embeddingProvider);
-      setChatProviderInner(first?.chatProvider ?? prefs.chatProvider);
-    } else {
-      setEmbeddingProviderInner(prefs.embeddingProvider);
-      setChatProviderInner(prefs.chatProvider);
+  const loadChatSessions = useCallback(async () => {
+    setChatSessionsError(null);
+    try {
+      let sessions = await fetchChatSessions();
+      const legacy = readSessionsFromStorage();
+      if (sessions.length === 0 && legacy.length > 0) {
+        for (const s of legacy) {
+          try {
+            await createChatSession(s);
+          } catch {
+            // skip failed legacy rows
+          }
+        }
+        if (typeof window !== "undefined") {
+          window.localStorage.removeItem(CHAT_STORAGE_KEY);
+        }
+        sessions = await fetchChatSessions();
+      }
+      sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+      setChatSessions(sessions);
+      return sessions;
+    } catch (e) {
+      setChatSessionsError(
+        e instanceof Error ? e.message : "Could not load chat sessions from the API.",
+      );
+      setChatSessions([]);
+      return [];
     }
-    setChatSessionsHydrated(true);
   }, []);
 
   useEffect(() => {
-    if (!chatSessionsHydrated) return;
-    const sorted = [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt);
-    writeSessionsToStorage(sorted);
-  }, [chatSessions, chatSessionsHydrated]);
+    const prefs = readAppSettings();
+    setTtsModeInner(prefs.ttsMode);
+    setEmbeddingProviderInner(prefs.embeddingProvider);
+    setChatProviderInner(prefs.chatProvider);
+
+    void (async () => {
+      const loaded = await loadChatSessions();
+      if (loaded.length > 0) {
+        setActiveSessionId(loaded[0].id);
+        const first = loaded[0];
+        setSelectedBookId(first.bookId);
+        setEmbeddingProviderInner(first.embeddingProvider);
+        setChatProviderInner(first.chatProvider);
+      }
+      setChatSessionsHydrated(true);
+    })();
+  }, [loadChatSessions]);
 
   useEffect(() => {
     if (!pdfReaderModal) return;
@@ -577,27 +608,33 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const createNewChatSession = useCallback((bookId: string) => {
-    if (!bookId) return;
-    const book = books.find((b) => b.book_id === bookId);
-    const id = newMessageId();
-    const session: ChatSession = {
-      id,
-      bookId,
-      bookLabel: book?.filename ?? bookId,
-      embeddingProvider,
-      chatProvider,
-      title: "New chat",
-      messages: [],
-      updatedAt: Date.now(),
-    };
-    setChatSessions((prev) => [session, ...prev]);
-    setActiveSessionId(id);
-    setSelectedBookId(bookId);
-    if (book?.embedding_provider) {
-      setEmbeddingProvider(book.embedding_provider);
-    }
-  }, [books, embeddingProvider, chatProvider]);
+  const createNewChatSession = useCallback(
+    (bookId: string) => {
+      if (!bookId) return;
+      const book = books.find((b) => b.book_id === bookId);
+      const id = newMessageId();
+      const session: ChatSession = {
+        id,
+        bookId,
+        bookLabel: book?.filename ?? bookId,
+        embeddingProvider,
+        chatProvider,
+        title: "New chat",
+        messages: [],
+        updatedAt: Date.now(),
+      };
+      setChatSessions((prev) => [session, ...prev]);
+      setActiveSessionId(id);
+      setSelectedBookId(bookId);
+      if (book?.embedding_provider) {
+        setEmbeddingProvider(book.embedding_provider);
+      }
+      void createChatSession(session).catch(() => {
+        setChatSessionsError("Could not save new chat session.");
+      });
+    },
+    [books, embeddingProvider, chatProvider, setEmbeddingProvider],
+  );
 
   const selectSession = (id: string) => {
     const s = chatSessions.find((x) => x.id === id);
@@ -624,6 +661,10 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         }
       }
       return next;
+    });
+    void deleteChatSession(id).catch(() => {
+      setChatSessionsError("Could not delete chat session.");
+      void loadChatSessions();
     });
   };
 
@@ -964,6 +1005,8 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     if (!selectedBookId || !question.trim()) return;
 
     let sid = activeSessionId;
+    let sessionSnapshot = chatSessions.find((s) => s.id === sid) ?? null;
+
     if (!sid) {
       const book = books.find((b) => b.book_id === selectedBookId);
       sid = newMessageId();
@@ -979,6 +1022,12 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       };
       setChatSessions((prev) => [session, ...prev]);
       setActiveSessionId(sid);
+      sessionSnapshot = session;
+      try {
+        await createChatSession(session);
+      } catch {
+        setChatSessionsError("Could not save new chat session.");
+      }
     }
 
     const q = question.trim();
@@ -989,28 +1038,36 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       createdAt: Date.now(),
     };
 
-    setChatSessions((prev) =>
-      prev.map((s) => {
-        if (s.id !== sid) return s;
-        const isFirst = s.messages.length === 0;
-        return {
-          ...s,
-          title: isFirst ? sessionPreviewTitle(q) : s.title,
-          messages: [...s.messages, userMsg],
+    const sessionWithUser: ChatSession | null = sessionSnapshot
+      ? {
+          ...sessionSnapshot,
+          title:
+            sessionSnapshot.messages.length === 0 ? sessionPreviewTitle(q) : sessionSnapshot.title,
+          messages: [...sessionSnapshot.messages, userMsg],
           updatedAt: Date.now(),
           bookId: selectedBookId,
-          bookLabel: selectedBook?.filename ?? s.bookLabel,
+          bookLabel: selectedBook?.filename ?? sessionSnapshot.bookLabel,
           embeddingProvider,
           chatProvider,
-        };
-      }),
+        }
+      : null;
+
+    setChatSessions((prev) =>
+      prev.map((s) => (s.id === sid && sessionWithUser ? sessionWithUser : s)),
     );
     setQuestion("");
     setIsAsking(true);
 
-    const historyPayload = (chatSessions.find((s) => s.id === sid)?.messages ?? [])
-      .slice(-12)
-      .map((m) => ({ role: m.role, content: m.content }));
+    if (sessionWithUser) {
+      void replaceChatSession(sessionWithUser).catch(() => {
+        setChatSessionsError("Could not save chat session.");
+      });
+    }
+
+    const historyPayload = (sessionWithUser?.messages ?? []).slice(-12).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     try {
       const response = await fetch(`${API_BASE_URL}/chat`, {
@@ -1038,13 +1095,21 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         sources: result.sources,
         createdAt: Date.now(),
       };
+      const sessionWithReply: ChatSession | null = sessionWithUser
+        ? {
+            ...sessionWithUser,
+            messages: [...sessionWithUser.messages, assistantMsg],
+            updatedAt: Date.now(),
+          }
+        : null;
       setChatSessions((prev) =>
-        prev.map((s) =>
-          s.id === sid
-            ? { ...s, messages: [...s.messages, assistantMsg], updatedAt: Date.now() }
-            : s,
-        ),
+        prev.map((s) => (s.id === sid && sessionWithReply ? sessionWithReply : s)),
       );
+      if (sessionWithReply) {
+        void replaceChatSession(sessionWithReply).catch(() => {
+          setChatSessionsError("Could not save chat session.");
+        });
+      }
     } catch (error) {
       const errText = error instanceof Error ? error.message : "Chat failed.";
       const assistantMsg: StoredMessage = {
@@ -1053,13 +1118,21 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         content: `Error: ${errText}`,
         createdAt: Date.now(),
       };
+      const sessionWithError: ChatSession | null = sessionWithUser
+        ? {
+            ...sessionWithUser,
+            messages: [...sessionWithUser.messages, assistantMsg],
+            updatedAt: Date.now(),
+          }
+        : null;
       setChatSessions((prev) =>
-        prev.map((s) =>
-          s.id === sid
-            ? { ...s, messages: [...s.messages, assistantMsg], updatedAt: Date.now() }
-            : s,
-        ),
+        prev.map((s) => (s.id === sid && sessionWithError ? sessionWithError : s)),
       );
+      if (sessionWithError) {
+        void replaceChatSession(sessionWithError).catch(() => {
+          setChatSessionsError("Could not save chat session.");
+        });
+      }
     } finally {
       setIsAsking(false);
     }
