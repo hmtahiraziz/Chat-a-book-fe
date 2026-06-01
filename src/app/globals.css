@@ -322,6 +322,16 @@ a:focus:not(:focus-visible) {
 }
 
 /* Marketing home — calmer background, subtle preview glow */
+html:has(.landing-page) {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has(.landing-page) {
+    scroll-behavior: auto;
+  }
+}
+
 .landing-page {
   background-color: var(--bg);
   background-image: none;
