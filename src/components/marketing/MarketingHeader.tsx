@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ScrollAnchor } from "@/components/marketing/ScrollAnchor";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const NAV = [
@@ -31,13 +32,13 @@ export function MarketingHeader() {
 
         <nav className="hidden items-center gap-8 sm:flex" aria-label="Marketing">
           {NAV.map((item) => (
-            <a
+            <ScrollAnchor
               key={item.href}
               href={item.href}
               className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--text)]"
             >
               {item.label}
-            </a>
+            </ScrollAnchor>
           ))}
         </nav>
 
