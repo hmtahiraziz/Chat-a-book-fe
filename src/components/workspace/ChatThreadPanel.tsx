@@ -2,12 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
-import {
-  isSummaryIntent,
-  parseSummarySections,
-  splitIntroFromSummary,
-  stripMarkdownEmphasis,
-} from "@/components/workspace/domain";
+import { isSummaryIntent } from "@/components/workspace/domain";
+import { SummaryMessageView } from "@/components/workspace/SummaryMessageView";
 
 function scrollBehavior(): ScrollBehavior {
   if (typeof window === "undefined") return "smooth";
@@ -236,51 +232,7 @@ export function ChatThreadPanel() {
 
                       {/* Message content */}
                       {m.role === "assistant" && isSummaryIntent(m.classification) ? (
-                        (() => {
-                          const { intro, body } = splitIntroFromSummary(m.content);
-                          const sections = parseSummarySections(body);
-                          if (sections.length === 0) {
-                            return <p className="whitespace-pre-wrap">{m.content}</p>;
-                          }
-                          return (
-                            <div className="space-y-3">
-                              {intro ? (
-                                <div className="rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-subtle)] px-3 py-2.5">
-                                  <p className="text-[13px] font-medium leading-relaxed text-[var(--text)]">
-                                    {stripMarkdownEmphasis(intro)}
-                                  </p>
-                                </div>
-                              ) : null}
-                              {sections.map((section, idx) => (
-                                <section
-                                  key={`${m.id}-summary-${idx}`}
-                                  className="rounded-xl border border-[var(--border)]/70 bg-[var(--panel)]/70 p-3.5"
-                                >
-                                  <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--accent-warm)]">
-                                    {section.title}
-                                  </h4>
-                                  {section.body.split("\n").some((ln) => ln.trim().startsWith("*")) ? (
-                                    <ul className="space-y-1.5 pl-4 text-[14px] leading-relaxed text-[var(--text)] marker:text-[var(--accent)]">
-                                      {section.body
-                                        .split("\n")
-                                        .map((ln) => ln.trim())
-                                        .filter(Boolean)
-                                        .map((ln, i) => (
-                                          <li key={`${m.id}-summary-${idx}-li-${i}`}>
-                                            {stripMarkdownEmphasis(ln.replace(/^\*\s*/, ""))}
-                                          </li>
-                                        ))}
-                                    </ul>
-                                  ) : (
-                                    <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--text)]">
-                                      {section.body}
-                                    </p>
-                                  )}
-                                </section>
-                              ))}
-                            </div>
-                          );
-                        })()
+                        <SummaryMessageView messageId={m.id} content={m.content} />
                       ) : (
                         <p className="whitespace-pre-wrap">{m.content}</p>
                       )}

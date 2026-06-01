@@ -150,13 +150,32 @@ export type SummarySection = {
   body: string;
 };
 
+/** Section headings the UI parser and backend prompts agree on. */
+export const SUMMARY_SECTION_HEADINGS = [
+  "main plot",
+  "key characters",
+  "major themes",
+  "ending / resolution overview",
+  "resolution overview",
+  "chapter overview",
+  "key events",
+  "notable details",
+] as const;
+
+const SUMMARY_SECTION_PATTERN =
+  "main plot|key characters|major themes|ending(?:\\s*\\/\\s*resolution|\\s+overview)?|resolution overview|chapter overview|key events|notable details";
+
 export function isSummaryIntent(intent: string | undefined): boolean {
   return intent === "book_summary" || intent === "chapter_summary";
 }
 
 function normalizeSummaryTitle(raw: string): string {
   const cleaned = raw.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-  const noNumber = cleaned.replace(/^\d+[\).\s-]*/, "").trim();
+  const noNumber = cleaned.replace(/^\d+[\).\s:-]*/, "").trim();
+  const lower = noNumber.toLowerCase();
+  if (lower === "ending" || lower === "resolution" || lower === "ending resolution") {
+    return "Ending / Resolution Overview";
+  }
   return noNumber
     .split(" ")
     .filter(Boolean)
@@ -169,21 +188,71 @@ export function stripMarkdownEmphasis(text: string): string {
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/`(.*?)`/g, "$1")
+    .replace(/^#+\s*/gm, "")
     .trim();
 }
 
-export function splitIntroFromSummary(text: string): { intro: string; body: string } {
-  const match = text.match(
-    /(?:\*\*)?\s*(?:\d+[\).\s-]*)?(main plot|key characters|major themes|ending(?:\s*\/\s*resolution|\s+overview)?|resolution overview)/i,
+/** Normalize LLM output before parsing (orphan numbers, markdown headings, etc.). */
+export function preprocessSummaryText(text: string): string {
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,3}\s+/gm, "")
+    .replace(/^\s*\d+[\).\s:-]*\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export function isMeaningfulSummaryIntro(intro: string): boolean {
+  const t = stripMarkdownEmphasis(intro).trim();
+  if (!t) return false;
+  if (/^(\d+[\).\s:-]+\s*)+$/i.test(t)) return false;
+  const letters = (t.match(/[a-zA-Z]/g) ?? []).length;
+  if (letters < 10) return false;
+  return true;
+}
+
+function matchSummaryHeading(line: string): { title: string; rest: string } | null {
+  const stripped = stripMarkdownEmphasis(line).trim();
+  const cleaned = stripped.replace(/^[-*•]\s+/, "");
+
+  const inline = cleaned.match(
+    new RegExp(
+      `^(?:\\d+[\\.\\)\\s:-]*)?(${SUMMARY_SECTION_PATTERN})\\s*:?\\s*(.*)$`,
+      "i",
+    ),
   );
-  if (!match || match.index == null) return { intro: "", body: text };
-  const intro = text.slice(0, match.index).trim();
-  const body = text.slice(match.index).trim();
+  if (inline?.[1]) {
+    return {
+      title: normalizeSummaryTitle(inline[1]),
+      rest: (inline[2] ?? "").trim(),
+    };
+  }
+
+  const headingOnly = cleaned.match(
+    new RegExp(`^(?:\\d+[\\.\\)\\s:-]*)?(${SUMMARY_SECTION_PATTERN})\\s*:?\\s*$`, "i"),
+  );
+  if (headingOnly?.[1]) {
+    return { title: normalizeSummaryTitle(headingOnly[1]), rest: "" };
+  }
+
+  return null;
+}
+
+export function splitIntroFromSummary(text: string): { intro: string; body: string } {
+  const normalized = preprocessSummaryText(text);
+  const re = new RegExp(
+    `(?:^|\\n)\\s*(?:\\d+[\\.\\)\\s:-]*)?(${SUMMARY_SECTION_PATTERN})\\b`,
+    "i",
+  );
+  const match = normalized.match(re);
+  if (!match || match.index == null) return { intro: "", body: normalized };
+  const intro = normalized.slice(0, match.index).trim();
+  const body = normalized.slice(match.index).trim();
   return { intro, body };
 }
 
 export function parseSummarySections(text: string): SummarySection[] {
-  const lines = text.split("\n").map((l) => l.trim());
+  const lines = preprocessSummaryText(text).split("\n").map((l) => l.trim());
   const sections: SummarySection[] = [];
 
   let currentTitle = "";
@@ -202,14 +271,11 @@ export function parseSummarySections(text: string): SummarySection[] {
       continue;
     }
 
-    const m = line.match(
-      /^(?:[-*]\s*)?(?:\*\*)?(?:\d+[\).\s-]*)?(main plot|key characters|major themes|ending(?:\s*\/\s*resolution|\s+overview)?|resolution overview)(?:\*\*)?\s*:?\s*(.*)$/i,
-    );
-    if (m) {
+    const heading = matchSummaryHeading(line);
+    if (heading) {
       flush();
-      currentTitle = normalizeSummaryTitle(m[1]);
-      const rest = stripMarkdownEmphasis((m[2] ?? "").trim());
-      if (rest) currentBody.push(rest);
+      currentTitle = heading.title;
+      if (heading.rest) currentBody.push(heading.rest);
       continue;
     }
 

@@ -23,6 +23,12 @@ import {
 import { ingestStatusFilename } from "@/lib/ingestFilename";
 import { mergeAppSettings, readAppSettings, type TtsMode } from "@/lib/appSettings";
 import {
+  mapLineCharToChunkPosition,
+  type BookAudioSession,
+} from "@/lib/bookAudioSession";
+import { useBookAudioSession } from "@/hooks/useBookAudioSession";
+import { FloatingAudioPlayer } from "@/components/audio/FloatingAudioPlayer";
+import {
   type Book,
   type ChatResponse,
   type ChatSession,
@@ -64,29 +70,6 @@ declare global {
     webkitSpeechRecognition?: SpeechRecognitionCtor;
     SpeechRecognition?: SpeechRecognitionCtor;
   }
-}
-
-function HighlightedText({
-  text,
-  start,
-  end,
-}: {
-  text: string;
-  start: number;
-  end: number;
-}) {
-  const s = Math.max(0, Math.min(start, text.length));
-  const e = Math.max(s, Math.min(end, text.length));
-  if (e <= s) return <span className="whitespace-pre-wrap break-words">{text}</span>;
-  return (
-    <span className="whitespace-pre-wrap break-words">
-      {text.slice(0, s)}
-      <mark className="rounded-sm bg-[var(--accent)]/40 px-0.5 text-[var(--text)]">
-        {text.slice(s, e)}
-      </mark>
-      {text.slice(e)}
-    </span>
-  );
 }
 
 export type BooksLoadStatus = "loading" | "ready" | "error";
@@ -150,6 +133,20 @@ export type WorkspaceAppContextValue = {
   speakText: (text: string, messageId?: string) => void;
   ttsMode: TtsMode;
   setTtsMode: (m: TtsMode) => void;
+
+  audioSession: BookAudioSession;
+  playbackSpeed: number;
+  setPlaybackSpeed: (speed: number) => void;
+  startBookListen: (
+    book: Book,
+    opts?: { chunks?: string[]; startChunkIndex?: number; startCharIndex?: number },
+  ) => Promise<void>;
+  startPdfListen: (opts?: { startChunkIndex?: number; startCharIndex?: number }) => Promise<void>;
+  stopAudioSession: () => void;
+  toggleAudioPause: () => void;
+  skipAudioChunk: (delta: number) => void;
+  isBookAudioActive: (bookId: string) => boolean;
+  isBookAudioLoading: (bookId: string) => boolean;
 };
 
 const WorkspaceAppContext = createContext<WorkspaceAppContextValue | null>(null);
@@ -208,42 +205,35 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   const [activeSessionId, setActiveSessionId] = useState("");
 
   const [pdfReaderModal, setPdfReaderModal] = useState<PdfReaderModal | null>(null);
-  const [pdfAudioLoading, setPdfAudioLoading] = useState(false);
-  const [pdfAudioPlaying, setPdfAudioPlaying] = useState(false);
-  const [pdfAudioError, setPdfAudioError] = useState("");
-  const [pdfAudioChunks, setPdfAudioChunks] = useState<string[]>([]);
-  const [pdfAudioChunkIndex, setPdfAudioChunkIndex] = useState(0);
-  const [pdfAudioWordStart, setPdfAudioWordStart] = useState(0);
-  const [pdfAudioWordEnd, setPdfAudioWordEnd] = useState(0);
+  const [pdfDialogChunks, setPdfDialogChunks] = useState<string[]>([]);
+  const [pdfDialogLoading, setPdfDialogLoading] = useState(false);
+  const [pdfDialogError, setPdfDialogError] = useState("");
   const [pdfStartDialogOpen, setPdfStartDialogOpen] = useState(false);
   const [pdfStartLine, setPdfStartLine] = useState(1);
   const [pdfStartChar, setPdfStartChar] = useState(1);
   const [pdfSelectedStart, setPdfSelectedStart] = useState<number | null>(null);
   const [isListening, setIsListening] = useState(false);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const dictationBaseRef = useRef("");
-  const pdfAudioTokenRef = useRef(0);
   const pdfPreviewRef = useRef<HTMLParagraphElement | null>(null);
-  const serverTtsSpeakTokenRef = useRef(0);
-  const serverTtsAudioRef = useRef<HTMLAudioElement | null>(null);
-  const serverTtsObjectUrlRef = useRef<string | null>(null);
 
-  const cleanupServerTtsAudio = useCallback(() => {
-    if (serverTtsAudioRef.current) {
-      try {
-        serverTtsAudioRef.current.pause();
-      } catch {
-        // noop
-      }
-      serverTtsAudioRef.current.src = "";
-      serverTtsAudioRef.current = null;
-    }
-    if (serverTtsObjectUrlRef.current) {
-      URL.revokeObjectURL(serverTtsObjectUrlRef.current);
-      serverTtsObjectUrlRef.current = null;
-    }
-  }, []);
+  const {
+    session: audioSession,
+    playbackSpeed,
+    beginLoadingSession,
+    startSession,
+    stopSession,
+    togglePauseResume,
+    skipChunk,
+    setPlaybackSpeed,
+  } = useBookAudioSession(ttsMode);
+
+  const speakingMessageId =
+    audioSession.source === "chat" &&
+    audioSession.chatMessageId &&
+    (audioSession.status === "playing" || audioSession.status === "paused")
+      ? audioSession.chatMessageId
+      : null;
 
   const selectedBook = useMemo(
     () => books.find((b) => b.book_id === selectedBookId) ?? null,
@@ -313,7 +303,14 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const loaded =       await loadBooks();
+      if (
+        audioSession.bookId === bookId &&
+        (audioSession.status === "playing" || audioSession.status === "paused")
+      ) {
+        stopSession();
+      }
+
+      const loaded = await loadBooks();
       invalidateBookChunksCache(bookId);
 
       setSelectedBookId((prev) => {
@@ -322,7 +319,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         return loaded?.[0]?.book_id ?? "";
       });
     },
-    [activeSessionId, chatSessions, loadBooks],
+    [activeSessionId, audioSession.bookId, audioSession.status, chatSessions, loadBooks, stopSession],
   );
 
   const recognitionSupported = useMemo(() => {
@@ -331,77 +328,37 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const stopSpeaking = useCallback(() => {
-    serverTtsSpeakTokenRef.current += 1;
-    cleanupServerTtsAudio();
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-    setSpeakingMessageId(null);
-  }, [cleanupServerTtsAudio]);
+    stopSession();
+  }, [stopSession]);
 
   const speakText = useCallback(
     (text: string, messageId?: string) => {
-      if (typeof window === "undefined") return;
       const payload = speechCleanText(text);
       if (!payload) return;
-      serverTtsSpeakTokenRef.current += 1;
-      const token = serverTtsSpeakTokenRef.current;
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-      cleanupServerTtsAudio();
-      if (messageId) setSpeakingMessageId(messageId);
-
-      if (ttsMode === "openai") {
-        void (async () => {
-          try {
-            const response = await fetch(`${API_BASE_URL}/tts`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: payload }),
-            });
-            if (!response.ok) {
-              const err = (await response.json().catch(() => ({}))) as { detail?: string };
-              throw new Error(err?.detail ?? `TTS failed (HTTP ${response.status}).`);
-            }
-            const blob = await response.blob();
-            if (token !== serverTtsSpeakTokenRef.current) return;
-            const url = URL.createObjectURL(blob);
-            serverTtsObjectUrlRef.current = url;
-            const audio = new Audio(url);
-            serverTtsAudioRef.current = audio;
-            audio.onended = () => {
-              cleanupServerTtsAudio();
-              setSpeakingMessageId((prev) => (messageId && prev === messageId ? null : prev));
-            };
-            audio.onerror = () => {
-              cleanupServerTtsAudio();
-              setSpeakingMessageId((prev) => (messageId && prev === messageId ? null : prev));
-            };
-            await audio.play();
-          } catch {
-            if (token === serverTtsSpeakTokenRef.current) {
-              cleanupServerTtsAudio();
-              setSpeakingMessageId(null);
-            }
-          }
-        })();
-        return;
-      }
-
-      if (!("speechSynthesis" in window)) return;
-      const utter = new SpeechSynthesisUtterance(payload);
-      utter.rate = 1;
-      utter.pitch = 1;
-      utter.onend = () => {
-        setSpeakingMessageId((prev) => (messageId && prev === messageId ? null : prev));
-      };
-      utter.onerror = () => {
-        setSpeakingMessageId((prev) => (messageId && prev === messageId ? null : prev));
-      };
-      window.speechSynthesis.speak(utter);
+      const book = selectedBook;
+      void startSession({
+        source: "chat",
+        title: book?.filename ?? "Chat answer",
+        bookId: selectedBookId || undefined,
+        chatMessageId: messageId,
+        chunks: [payload],
+        startChunkIndex: 0,
+        startCharIndex: 0,
+      });
     },
-    [cleanupServerTtsAudio, ttsMode],
+    [selectedBook, selectedBookId, startSession],
+  );
+
+  const isBookAudioActive = useCallback(
+    (bookId: string) =>
+      audioSession.bookId === bookId &&
+      (audioSession.status === "playing" || audioSession.status === "paused"),
+    [audioSession.bookId, audioSession.status],
+  );
+
+  const isBookAudioLoading = useCallback(
+    (bookId: string) => audioSession.loadingBookId === bookId,
+    [audioSession.loadingBookId],
   );
 
   useEffect(() => {
@@ -450,11 +407,8 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!pdfReaderModal) return;
-    setPdfAudioError("");
-    setPdfAudioChunks([]);
-    setPdfAudioChunkIndex(0);
-    setPdfAudioWordStart(0);
-    setPdfAudioWordEnd(0);
+    setPdfDialogError("");
+    setPdfDialogChunks([]);
     setPdfStartDialogOpen(false);
     setPdfStartLine(1);
     setPdfStartChar(1);
@@ -462,23 +416,14 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        pdfAudioTokenRef.current += 1;
-        setPdfAudioPlaying(false);
-        setPdfAudioLoading(false);
-        cleanupServerTtsAudio();
-        if (typeof window !== "undefined" && "speechSynthesis" in window) {
-          window.speechSynthesis.cancel();
-        }
-        setPdfReaderModal(null);
-      }
+      if (e.key === "Escape") setPdfReaderModal(null);
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
     };
-  }, [pdfReaderModal, cleanupServerTtsAudio]);
+  }, [pdfReaderModal]);
 
   useEffect(() => {
     return () => {
@@ -489,13 +434,9 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           // noop
         }
       }
-      cleanupServerTtsAudio();
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-      pdfAudioTokenRef.current += 1;
+      stopSession();
     };
-  }, [cleanupServerTtsAudio]);
+  }, [stopSession]);
 
   useEffect(() => {
     if (!isIndexing || indexStartedAtMs === null) return;
@@ -700,232 +641,99 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const mapLineCharToChunkPosition = (chunks: string[], line: number, char: number) => {
-    const joined = chunks.join("\n");
-    if (!joined) return { chunkIndex: 0, charIndex: 0 };
-    const lineStarts = [0];
-    for (let i = 0; i < joined.length; i += 1) {
-      if (joined[i] === "\n") lineStarts.push(i + 1);
-    }
-    const clampedLine = Math.max(1, Math.min(line, lineStarts.length));
-    const lineStart = lineStarts[clampedLine - 1];
-    const lineEndExclusive =
-      clampedLine < lineStarts.length ? lineStarts[clampedLine] - 1 : joined.length;
-    const clampedChar = Math.max(1, char);
-    const globalIndex = Math.min(
-      Math.max(lineStart + clampedChar - 1, lineStart),
-      Math.max(lineStart, lineEndExclusive),
-    );
-    let cursor = 0;
-    for (let i = 0; i < chunks.length; i += 1) {
-      const len = chunks[i].length;
-      if (globalIndex <= cursor + len - 1) return { chunkIndex: i, charIndex: globalIndex - cursor };
-      cursor += len;
-      if (i < chunks.length - 1) {
-        if (globalIndex === cursor) return { chunkIndex: i + 1, charIndex: 0 };
-        cursor += 1;
+  const startBookListen = useCallback(
+    async (
+      book: Book,
+      opts?: { chunks?: string[]; startChunkIndex?: number; startCharIndex?: number },
+    ) => {
+      if (typeof window === "undefined") return;
+      if (ttsMode === "browser" && !("speechSynthesis" in window)) return;
+      try {
+        if (!opts?.chunks) {
+          beginLoadingSession({
+            source: "library",
+            bookId: book.book_id,
+            title: book.filename,
+          });
+        }
+        const parts =
+          opts?.chunks ?? (await loadBookChunksForAudio(book.book_id, book.embedding_provider));
+        if (parts.length === 0) throw new Error("No readable chunks found for this book.");
+        await startSession({
+          source: "library",
+          title: book.filename,
+          bookId: book.book_id,
+          chunks: parts,
+          startChunkIndex: opts?.startChunkIndex,
+          startCharIndex: opts?.startCharIndex,
+        });
+      } catch (error) {
+        stopSession();
+        throw error;
       }
-    }
-    return { chunkIndex: chunks.length - 1, charIndex: 0 };
-  };
+    },
+    [beginLoadingSession, loadBookChunksForAudio, startSession, stopSession, ttsMode],
+  );
 
-  const stopPdfAudio = useCallback(() => {
-    pdfAudioTokenRef.current += 1;
-    setPdfAudioPlaying(false);
-    setPdfAudioLoading(false);
-    setPdfAudioChunks([]);
-    setPdfAudioChunkIndex(0);
-    setPdfAudioWordStart(0);
-    setPdfAudioWordEnd(0);
-    cleanupServerTtsAudio();
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-  }, [cleanupServerTtsAudio]);
-
-  const startPdfAudio = useCallback(
+  const startPdfListen = useCallback(
     async (opts?: { startChunkIndex?: number; startCharIndex?: number }) => {
       if (!pdfReaderModal || typeof window === "undefined") return;
       if (ttsMode === "browser" && !("speechSynthesis" in window)) return;
       const bookId = parseBookIdFromPdfUrl(pdfReaderModal.url);
       if (!bookId) {
-        setPdfAudioError("Could not determine book ID for audio.");
+        setPdfDialogError("Could not determine book ID for audio.");
         return;
       }
       const embeddingProvider =
         books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
-      stopPdfAudio();
-      setPdfAudioError("");
-      setPdfAudioLoading(true);
-      const token = pdfAudioTokenRef.current + 1;
-      pdfAudioTokenRef.current = token;
       try {
+        beginLoadingSession({
+          source: "pdf",
+          bookId,
+          title: pdfReaderModal.title,
+        });
         const parts = await loadBookChunksForAudio(bookId, embeddingProvider);
-        if (pdfAudioTokenRef.current !== token) return;
-        if (parts.length === 0) {
-          throw new Error("No readable text found for this book.");
-        }
-        const startChunkIndex = Math.max(
-          0,
-          Math.min(opts?.startChunkIndex ?? 0, parts.length - 1),
-        );
-        const startCharIndex = Math.max(
-          0,
-          Math.min(opts?.startCharIndex ?? 0, Math.max(0, parts[startChunkIndex].length - 1)),
-        );
-        setPdfAudioPlaying(true);
-        setPdfAudioChunks(parts);
-        setPdfAudioChunkIndex(startChunkIndex);
-        setPdfAudioWordStart(startCharIndex);
-        setPdfAudioWordEnd(Math.min(startCharIndex + 1, parts[startChunkIndex].length));
-
-        if (ttsMode === "openai") {
-          let idx = startChunkIndex;
-          while (idx < parts.length) {
-            if (pdfAudioTokenRef.current !== token) return;
-            const startOffset = idx === startChunkIndex ? startCharIndex : 0;
-            const chunkText = parts[idx];
-            const slice = (startOffset > 0 ? chunkText.slice(startOffset) : chunkText).trim();
-            setPdfAudioChunkIndex(idx);
-            setPdfAudioWordStart(0);
-            setPdfAudioWordEnd(chunkText.length);
-            if (!slice) {
-              idx += 1;
-              continue;
-            }
-            try {
-              const response = await fetch(`${API_BASE_URL}/tts`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: slice.slice(0, 8000) }),
-              });
-              if (!response.ok) {
-                const err = (await response.json().catch(() => ({}))) as { detail?: string };
-                throw new Error(err?.detail ?? `TTS failed (HTTP ${response.status}).`);
-              }
-              const blob = await response.blob();
-              if (pdfAudioTokenRef.current !== token) return;
-              const url = URL.createObjectURL(blob);
-              serverTtsObjectUrlRef.current = url;
-              const audio = new Audio(url);
-              serverTtsAudioRef.current = audio;
-              await new Promise<void>((resolve, reject) => {
-                audio.onended = () => {
-                  cleanupServerTtsAudio();
-                  resolve();
-                };
-                audio.onerror = () => {
-                  cleanupServerTtsAudio();
-                  reject(new Error("Audio playback error."));
-                };
-                void audio.play().catch(reject);
-              });
-            } catch (e) {
-              if (pdfAudioTokenRef.current === token) {
-                setPdfAudioError(e instanceof Error ? e.message : "Server TTS failed.");
-                setPdfAudioPlaying(false);
-                setPdfAudioWordStart(0);
-                setPdfAudioWordEnd(0);
-              }
-              return;
-            }
-            idx += 1;
-          }
-          if (pdfAudioTokenRef.current === token) {
-            setPdfAudioPlaying(false);
-            setPdfAudioWordStart(0);
-            setPdfAudioWordEnd(0);
-          }
-          return;
-        }
-
-        let idx = startChunkIndex;
-        const speakNext = () => {
-          if (pdfAudioTokenRef.current !== token) return;
-          if (idx >= parts.length) {
-            setPdfAudioPlaying(false);
-            setPdfAudioWordStart(0);
-            setPdfAudioWordEnd(0);
-            return;
-          }
-          const startOffset = idx === startChunkIndex ? startCharIndex : 0;
-          setPdfAudioChunkIndex(idx);
-          setPdfAudioWordStart(startOffset);
-          setPdfAudioWordEnd(Math.min(startOffset + 1, parts[idx].length));
-          const chunkText = parts[idx];
-          const utter = new SpeechSynthesisUtterance(
-            startOffset > 0 ? chunkText.slice(startOffset) : chunkText,
-          );
-          utter.rate = 1;
-          utter.pitch = 1;
-          utter.onboundary = (event) => {
-            if (pdfAudioTokenRef.current !== token) return;
-            const e = event as SpeechSynthesisEvent;
-            const start = Math.min(Math.max(0, startOffset + e.charIndex), chunkText.length);
-            let end = e.charLength > 0 ? start + e.charLength : start;
-            if (end <= start) {
-              const rest = chunkText.slice(start);
-              const word = rest.match(/^\s*\S+/)?.[0] ?? rest.slice(0, 1);
-              end = Math.min(start + (word?.length ?? 1), chunkText.length);
-            } else {
-              end = Math.min(end, chunkText.length);
-            }
-            setPdfAudioWordStart(start);
-            setPdfAudioWordEnd(end);
-          };
-          utter.onend = () => {
-            if (pdfAudioTokenRef.current !== token) return;
-            setPdfAudioWordStart(0);
-            setPdfAudioWordEnd(0);
-            idx += 1;
-            speakNext();
-          };
-          utter.onerror = (event) => {
-            if (pdfAudioTokenRef.current !== token) return;
-            const synthError = (event as SpeechSynthesisErrorEvent).error;
-            if (synthError === "canceled" || synthError === "interrupted") return;
-            setPdfAudioPlaying(false);
-            setPdfAudioWordStart(0);
-            setPdfAudioWordEnd(0);
-            setPdfAudioError("Audio playback stopped due to a speech synthesis error.");
-          };
-          window.speechSynthesis.speak(utter);
-        };
-        speakNext();
+        if (parts.length === 0) throw new Error("No readable text found for this book.");
+        await startSession({
+          source: "pdf",
+          title: pdfReaderModal.title,
+          bookId,
+          chunks: parts,
+          startChunkIndex: opts?.startChunkIndex,
+          startCharIndex: opts?.startCharIndex,
+        });
       } catch (error) {
-        if (pdfAudioTokenRef.current === token) {
-          setPdfAudioError(error instanceof Error ? error.message : "Could not start audio.");
-          setPdfAudioPlaying(false);
-        }
-      } finally {
-        if (pdfAudioTokenRef.current === token) setPdfAudioLoading(false);
+        stopSession();
+        setPdfDialogError(
+          error instanceof Error ? error.message : "Could not start audio.",
+        );
       }
     },
-    [pdfReaderModal, books, loadBookChunksForAudio, stopPdfAudio, ttsMode, cleanupServerTtsAudio],
+    [beginLoadingSession, books, loadBookChunksForAudio, pdfReaderModal, startSession, stopSession, ttsMode],
   );
 
   const loadPdfChunksIfNeeded = useCallback(async () => {
     if (!pdfReaderModal) return;
     const bookId = parseBookIdFromPdfUrl(pdfReaderModal.url);
     if (!bookId) return;
-    if (pdfAudioChunks.length > 0) return;
+    if (pdfDialogChunks.length > 0) return;
     const embeddingProvider =
       books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
-    setPdfAudioLoading(true);
-    setPdfAudioError("");
+    setPdfDialogLoading(true);
+    setPdfDialogError("");
     try {
       const chunks = await loadBookChunksForAudio(bookId, embeddingProvider);
-      setPdfAudioChunks(chunks);
+      setPdfDialogChunks(chunks);
     } catch (error) {
-      setPdfAudioError(
+      setPdfDialogError(
         error instanceof Error ? error.message : "Could not load book text for audio.",
       );
     } finally {
-      setPdfAudioLoading(false);
+      setPdfDialogLoading(false);
     }
-  }, [pdfReaderModal, pdfAudioChunks.length, books, loadBookChunksForAudio]);
+  }, [pdfReaderModal, pdfDialogChunks.length, books, loadBookChunksForAudio]);
 
-  const pdfJoined = pdfAudioChunks.join("\n");
+  const pdfJoined = pdfDialogChunks.join("\n");
   const pdfLines = pdfJoined ? pdfJoined.split("\n") : [];
   const pdfLineCount = pdfLines.length;
   const clampedPdfLine = Math.max(1, Math.min(pdfStartLine, Math.max(1, pdfLineCount)));
@@ -1208,20 +1016,46 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     speakText,
     ttsMode,
     setTtsMode,
+    audioSession,
+    playbackSpeed,
+    setPlaybackSpeed,
+    startBookListen,
+    startPdfListen,
+    stopAudioSession: stopSession,
+    toggleAudioPause: togglePauseResume,
+    skipAudioChunk: skipChunk,
+    isBookAudioActive,
+    isBookAudioLoading,
   };
+
+  const pdfBookId = pdfReaderModal ? parseBookIdFromPdfUrl(pdfReaderModal.url) : null;
+  const pdfSessionActive =
+    pdfBookId != null &&
+    audioSession.bookId === pdfBookId &&
+    (audioSession.status === "playing" || audioSession.status === "paused");
+
+  const handleOpenBookFromPlayer = useCallback(() => {
+    if (audioSession.bookId) openBookPdf(audioSession.bookId);
+  }, [audioSession.bookId, openBookPdf]);
 
   return (
     <WorkspaceAppContext.Provider value={value}>
+      <FloatingAudioPlayer
+        session={audioSession}
+        playbackSpeed={playbackSpeed}
+        onTogglePause={togglePauseResume}
+        onStop={stopSession}
+        onSkipChunk={skipChunk}
+        onSetSpeed={setPlaybackSpeed}
+        onOpenBook={audioSession.bookId ? handleOpenBookFromPlayer : undefined}
+      />
       {pdfReaderModal ? (
         <div
           className="fixed inset-0 z-[200] flex items-stretch justify-center bg-black/75 p-2 sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Book PDF"
-          onClick={() => {
-            stopPdfAudio();
-            setPdfReaderModal(null);
-          }}
+          onClick={() => setPdfReaderModal(null)}
         >
           <div
             className="flex h-[calc(100vh-1rem)] w-full max-w-[1400px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-input)] shadow-2xl sm:h-[calc(100vh-2rem)]"
@@ -1235,35 +1069,36 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
                 >
                   {pdfReaderModal.title}
                 </p>
-                {pdfAudioError ? (
-                  <p className="mt-1 text-[10px] text-[var(--warning)]">{pdfAudioError}</p>
+                {pdfDialogError ? (
+                  <p className="mt-1 text-[10px] text-[var(--warning)]">{pdfDialogError}</p>
+                ) : null}
+                {audioSession.error && audioSession.source === "pdf" ? (
+                  <p className="mt-1 text-[10px] text-[var(--warning)]">{audioSession.error}</p>
                 ) : null}
               </div>
               <div className="flex items-center gap-2">
                 <p className="hidden text-[10px] text-[var(--muted)] sm:block">
                   Native PDF view (browser engine)
                 </p>
-                {pdfAudioPlaying ? (
-                  <button
-                    type="button"
-                    onClick={stopPdfAudio}
-                    className="rounded-md border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-1 text-xs text-[var(--danger)]"
-                  >
-                    Stop audio
-                  </button>
+                {pdfSessionActive ? (
+                  <span className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-3 py-1 text-xs text-[var(--accent)]">
+                    Audio in player
+                  </span>
                 ) : (
                   <>
                     <button
                       type="button"
-                      disabled={pdfAudioLoading}
-                      onClick={() => void startPdfAudio()}
+                      disabled={pdfDialogLoading || audioSession.status === "loading"}
+                      onClick={() => void startPdfListen()}
                       className="rounded-md border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-3 py-1 text-xs text-[var(--accent)] disabled:opacity-50"
                     >
-                      {pdfAudioLoading ? "Preparing..." : "Listen in reader"}
+                      {pdfDialogLoading || audioSession.status === "loading"
+                        ? "Preparing..."
+                        : "Listen in reader"}
                     </button>
                     <button
                       type="button"
-                      disabled={pdfAudioLoading}
+                      disabled={pdfDialogLoading}
                       onClick={() => {
                         setPdfSelectedStart(null);
                         setPdfStartDialogOpen(true);
@@ -1277,10 +1112,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => {
-                    stopPdfAudio();
-                    setPdfReaderModal(null);
-                  }}
+                  onClick={() => setPdfReaderModal(null)}
                   className="rounded-md border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-1 text-xs text-[var(--text)] hover:bg-[var(--panel-soft)]"
                 >
                   Close
@@ -1294,20 +1126,6 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
               className="min-h-0 w-full flex-1 border-0 bg-[var(--surface-muted)]"
               allow="fullscreen"
             />
-            {pdfAudioPlaying && pdfAudioChunks.length > 0 ? (
-              <div className="shrink-0 border-t border-[var(--border)] bg-[var(--panel-soft)] px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
-                  Now speaking · chunk {pdfAudioChunkIndex + 1}/{pdfAudioChunks.length}
-                </p>
-                <p className="mt-1 max-h-20 overflow-y-auto text-xs leading-relaxed text-[var(--text)]">
-                  <HighlightedText
-                    text={pdfAudioChunks[pdfAudioChunkIndex] ?? ""}
-                    start={pdfAudioWordStart}
-                    end={pdfAudioWordEnd}
-                  />
-                </p>
-              </div>
-            ) : null}
           </div>
         </div>
       ) : null}
@@ -1325,7 +1143,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           >
             <h3 className="font-display text-xl text-[var(--text)]">Start from position</h3>
             <p className="mt-1 text-xs text-[var(--muted)]">{pdfReaderModal.title}</p>
-            {pdfAudioLoading && pdfAudioChunks.length === 0 ? (
+            {pdfDialogLoading && pdfDialogChunks.length === 0 ? (
               <p className="mt-3 text-xs text-[var(--muted)]">Loading book text…</p>
             ) : null}
             <div className="mt-4 grid grid-cols-2 gap-3">
@@ -1383,15 +1201,15 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
               </button>
               <button
                 type="button"
-                disabled={pdfAudioChunks.length === 0 || pdfAudioLoading}
+                disabled={pdfDialogChunks.length === 0 || pdfDialogLoading}
                 onClick={() => {
                   const pos = mapLineCharToChunkPosition(
-                    pdfAudioChunks,
+                    pdfDialogChunks,
                     clampedPdfLine,
                     Math.max(1, Math.min(pdfStartChar, pdfLineMaxChar)),
                   );
                   setPdfStartDialogOpen(false);
-                  void startPdfAudio({ startChunkIndex: pos.chunkIndex, startCharIndex: pos.charIndex });
+                  void startPdfListen({ startChunkIndex: pos.chunkIndex, startCharIndex: pos.charIndex });
                 }}
                 className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--bg)] disabled:opacity-50"
               >
@@ -1399,15 +1217,15 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
               </button>
               <button
                 type="button"
-                disabled={pdfSelectedStart == null || pdfAudioChunks.length === 0 || pdfAudioLoading}
+                disabled={pdfSelectedStart == null || pdfDialogChunks.length === 0 || pdfDialogLoading}
                 onClick={() => {
                   const pos = mapLineCharToChunkPosition(
-                    pdfAudioChunks,
+                    pdfDialogChunks,
                     clampedPdfLine,
                     (pdfSelectedStart ?? 0) + 1,
                   );
                   setPdfStartDialogOpen(false);
-                  void startPdfAudio({ startChunkIndex: pos.chunkIndex, startCharIndex: pos.charIndex });
+                  void startPdfListen({ startChunkIndex: pos.chunkIndex, startCharIndex: pos.charIndex });
                 }}
                 className="rounded-lg border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
               >
