@@ -320,3 +320,35 @@ a:focus:not(:focus-visible) {
     animation: none;
   }
 }
+
+/* Marketing home — calmer background, subtle preview glow */
+html:has(.landing-page) {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:has(.landing-page) {
+    scroll-behavior: auto;
+  }
+}
+
+.landing-page {
+  background-color: var(--bg);
+  background-image: none;
+}
+
+.landing-preview-glow {
+  background: radial-gradient(
+    ellipse 70% 60% at 50% 50%,
+    rgba(87, 31, 233, 0.12) 0%,
+    transparent 70%
+  );
+}
+
+[data-theme="light"] .landing-preview-glow {
+  background: radial-gradient(
+    ellipse 70% 60% at 50% 50%,
+    rgba(87, 31, 233, 0.08) 0%,
+    transparent 70%
+  );
+}

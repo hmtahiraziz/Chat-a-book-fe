@@ -104,6 +104,11 @@ function ApiStatusPill({ status }: { status: "loading" | "ready" | "error" }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { booksStatus } = useWorkspaceApp();
+  const isMarketingHome = pathname === "/";
+
+  if (isMarketingHome) {
+    return <>{children}</>;
+  }
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-[var(--text)] md:flex">
@@ -118,7 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="z-50 flex w-full shrink-0 flex-col bg-[var(--panel)] md:fixed md:left-0 md:top-0 md:h-screen md:w-64 md:border-r md:border-[var(--border)] md:shadow-[var(--shadow-sidebar)]">
         {/* Brand */}
         <div className="shrink-0 px-4 pb-4 pt-5">
-          <Link href="/workspace" className="group flex items-center gap-3">
+          <Link href="/" className="group flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] shadow-sm transition-opacity group-hover:opacity-90">
               <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
                 <path

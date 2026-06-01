@@ -17,6 +17,7 @@ import {
   createChatSession,
   deleteChatSession,
   fetchChatSessions,
+  migrateLegacySessionsOnce,
   replaceChatSession,
 } from "@/lib/chatSessionsApi";
 import { ingestStatusFilename } from "@/lib/ingestFilename";
@@ -28,7 +29,7 @@ import {
   type IngestStatusPayload,
   type PdfReaderModal,
   type StoredMessage,
-  CHAT_STORAGE_KEY,
+  dedupeChatSessions,
   readSessionsFromStorage,
   sessionPreviewTitle,
   speechCleanText,
@@ -303,7 +304,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       const sorted = [...nextSessions].sort((a, b) => b.updatedAt - a.updatedAt);
       const fallbackSession = sorted[0];
 
-      setChatSessions(nextSessions);
+      setChatSessions(dedupeChatSessions(nextSessions));
       if (lostActive) {
         setActiveSessionId(fallbackSession?.id ?? "");
         if (fallbackSession) {
@@ -413,19 +414,10 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       let sessions = await fetchChatSessions();
       const legacy = readSessionsFromStorage();
       if (sessions.length === 0 && legacy.length > 0) {
-        for (const s of legacy) {
-          try {
-            await createChatSession(s);
-          } catch {
-            // skip failed legacy rows
-          }
-        }
-        if (typeof window !== "undefined") {
-          window.localStorage.removeItem(CHAT_STORAGE_KEY);
-        }
+        await migrateLegacySessionsOnce(legacy);
         sessions = await fetchChatSessions();
       }
-      sessions.sort((a, b) => b.updatedAt - a.updatedAt);
+      sessions = dedupeChatSessions(sessions).sort((a, b) => b.updatedAt - a.updatedAt);
       setChatSessions(sessions);
       return sessions;
     } catch (e) {
@@ -625,7 +617,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         messages: [],
         updatedAt: Date.now(),
       };
-      setChatSessions((prev) => [session, ...prev]);
+      setChatSessions((prev) => dedupeChatSessions([session, ...prev]));
       setActiveSessionId(id);
       setSelectedBookId(bookId);
       if (book?.embedding_provider) {
@@ -651,7 +643,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   const deleteSession = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setChatSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id);
+      const next = dedupeChatSessions(prev.filter((s) => s.id !== id));
       if (activeSessionId === id) {
         const sorted = [...next].sort((a, b) => b.updatedAt - a.updatedAt);
         const fallback = sorted[0];
@@ -984,7 +976,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         messages: [],
         updatedAt: Date.now(),
       };
-      setChatSessions((prev) => [session, ...prev]);
+      setChatSessions((prev) => dedupeChatSessions([session, ...prev]));
       setActiveSessionId(sid);
       sessionSnapshot = session;
       try {
@@ -1017,7 +1009,9 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       : null;
 
     setChatSessions((prev) =>
-      prev.map((s) => (s.id === sid && sessionWithUser ? sessionWithUser : s)),
+      dedupeChatSessions(
+        prev.map((s) => (s.id === sid && sessionWithUser ? sessionWithUser : s)),
+      ),
     );
     setQuestion("");
     setIsAsking(true);
@@ -1067,7 +1061,9 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           }
         : null;
       setChatSessions((prev) =>
-        prev.map((s) => (s.id === sid && sessionWithReply ? sessionWithReply : s)),
+        dedupeChatSessions(
+          prev.map((s) => (s.id === sid && sessionWithReply ? sessionWithReply : s)),
+        ),
       );
       if (sessionWithReply) {
         void replaceChatSession(sessionWithReply).catch(() => {
@@ -1090,7 +1086,9 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           }
         : null;
       setChatSessions((prev) =>
-        prev.map((s) => (s.id === sid && sessionWithError ? sessionWithError : s)),
+        dedupeChatSessions(
+          prev.map((s) => (s.id === sid && sessionWithError ? sessionWithError : s)),
+        ),
       );
       if (sessionWithError) {
         void replaceChatSession(sessionWithError).catch(() => {
@@ -1152,7 +1150,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   };
 
   const sortedSessions = useMemo(
-    () => [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt),
+    () => dedupeChatSessions(chatSessions).sort((a, b) => b.updatedAt - a.updatedAt),
     [chatSessions],
   );
 
