@@ -1,36 +1,12 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import { mapLineCharToChunkPosition } from "@/lib/bookAudioSession";
 import { speechCleanText, type Book } from "@/components/workspace/domain";
 import { BookCard } from "@/components/workspace/BookCard";
 import { DeleteConfirmModal } from "@/components/workspace/DeleteConfirmModal";
-
-function HighlightedReadingText({
-  text,
-  highlightStart,
-  highlightEnd,
-}: {
-  text: string;
-  highlightStart: number;
-  highlightEnd: number;
-}) {
-  const s = Math.max(0, Math.min(highlightStart, text.length));
-  const e = Math.max(s, Math.min(highlightEnd, text.length));
-  if (e <= s) {
-    return <span className="whitespace-pre-wrap break-words">{text}</span>;
-  }
-  return (
-    <span className="whitespace-pre-wrap break-words">
-      {text.slice(0, s)}
-      <mark className="rounded-sm bg-[var(--accent)]/40 px-0.5 font-medium text-[var(--text)] [box-decoration-break:clone]">
-        {text.slice(s, e)}
-      </mark>
-      {text.slice(e)}
-    </span>
-  );
-}
 
 function LibrarySkeleton() {
   return (
@@ -63,8 +39,12 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     booksStatus,
     loadBooks,
     openBookPdf,
-    ttsMode,
     deleteBook,
+    startBookListen,
+    stopAudioSession,
+    isBookAudioActive,
+    isBookAudioLoading,
+    audioSession,
   } = useWorkspaceApp();
 
   // ── Search / sort ──────────────────────────────────────────────────────────
@@ -93,7 +73,7 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     setDeletingBookId(book.book_id);
     try {
       await deleteBook(book.book_id);
-      if (speakingBookId === book.book_id) stopBookAudio();
+      if (isBookAudioActive(book.book_id)) stopAudioSession();
     } catch (e) {
       setDeleteError(e instanceof Error ? e.message : "Delete failed.");
     } finally {
@@ -102,50 +82,15 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     }
   };
 
-  // ── TTS / audio ────────────────────────────────────────────────────────────
-  const [loadingBookListenId, setLoadingBookListenId] = useState<string | null>(null);
-  const [speakingBookId, setSpeakingBookId] = useState<string | null>(null);
-  const [listenError, setListenError] = useState<string>("");
-  const [readingChunks, setReadingChunks] = useState<string[]>([]);
-  const [readingIndex, setReadingIndex] = useState(0);
-  const [readingBookLabel, setReadingBookLabel] = useState("");
-  const [readWordStart, setReadWordStart] = useState(0);
-  const [readWordEnd, setReadWordEnd] = useState(0);
-
-  const bookAudioTokenRef = useRef(0);
-  const libraryGeminiAudioRef = useRef<HTMLAudioElement | null>(null);
-  const libraryGeminiObjectUrlRef = useRef<string | null>(null);
-  const nowReadingChunkRef = useRef<HTMLDivElement | null>(null);
+  const [listenError, setListenError] = useState("");
   const chunksCacheRef = useRef<Record<string, string[]>>({});
 
-  const cleanupLibraryGeminiAudio = () => {
-    if (libraryGeminiAudioRef.current) {
-      try {
-        libraryGeminiAudioRef.current.pause();
-      } catch {
-        // noop
-      }
-      libraryGeminiAudioRef.current.src = "";
-      libraryGeminiAudioRef.current = null;
-    }
-    if (libraryGeminiObjectUrlRef.current) {
-      URL.revokeObjectURL(libraryGeminiObjectUrlRef.current);
-      libraryGeminiObjectUrlRef.current = null;
-    }
-  };
-
-  const stopBookAudio = () => {
-    bookAudioTokenRef.current += 1;
-    cleanupLibraryGeminiAudio();
-    setSpeakingBookId(null);
-    setLoadingBookListenId(null);
-    setReadingChunks([]);
-    setReadingIndex(0);
-    setReadingBookLabel("");
-    setReadWordStart(0);
-    setReadWordEnd(0);
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
+  const handleListen = async (book: Book) => {
+    setListenError("");
+    try {
+      await startBookListen(book);
+    } catch (error) {
+      setListenError(error instanceof Error ? error.message : "Could not start audio.");
     }
   };
 
@@ -207,231 +152,6 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     return loaded;
   };
 
-  const mapLineCharToChunkPosition = (chunks: string[], line: number, char: number) => {
-    const joined = chunks.join("\n");
-    if (!joined) return { chunkIndex: 0, charIndex: 0 };
-    const lineStarts = [0];
-    for (let i = 0; i < joined.length; i += 1) {
-      if (joined[i] === "\n") lineStarts.push(i + 1);
-    }
-    const clampedLine = Math.max(1, Math.min(line, lineStarts.length));
-    const lineStart = lineStarts[clampedLine - 1];
-    const lineEndExclusive =
-      clampedLine < lineStarts.length ? lineStarts[clampedLine] - 1 : joined.length;
-    const clampedChar = Math.max(1, char);
-    const globalIndex = Math.min(
-      Math.max(lineStart + clampedChar - 1, lineStart),
-      Math.max(lineStart, lineEndExclusive),
-    );
-    let cursor = 0;
-    for (let i = 0; i < chunks.length; i += 1) {
-      const chunkLen = chunks[i].length;
-      if (globalIndex <= cursor + chunkLen - 1) {
-        return { chunkIndex: i, charIndex: Math.max(0, globalIndex - cursor) };
-      }
-      cursor += chunkLen;
-      if (i < chunks.length - 1) {
-        if (globalIndex === cursor) return { chunkIndex: i + 1, charIndex: 0 };
-        cursor += 1;
-      }
-    }
-    return { chunkIndex: chunks.length - 1, charIndex: 0 };
-  };
-
-  const startBookAudio = async (
-    book: Book,
-    opts?: { chunks?: string[]; startChunkIndex?: number; startCharIndex?: number },
-  ) => {
-    if (typeof window === "undefined") return;
-    if (ttsMode === "browser" && !("speechSynthesis" in window)) return;
-    stopBookAudio();
-    setListenError("");
-    setLoadingBookListenId(book.book_id);
-    const token = bookAudioTokenRef.current + 1;
-    bookAudioTokenRef.current = token;
-    try {
-      const parts = opts?.chunks ?? (await getOrFetchBookChunks(book.book_id));
-      if (bookAudioTokenRef.current !== token) return;
-      if (parts.length === 0) {
-        throw new Error("No readable chunks found for this book.");
-      }
-      const startChunkIndex = Math.max(0, Math.min(opts?.startChunkIndex ?? 0, parts.length - 1));
-      const startCharIndex = Math.max(
-        0,
-        Math.min(opts?.startCharIndex ?? 0, Math.max(0, parts[startChunkIndex].length - 1)),
-      );
-      setSpeakingBookId(book.book_id);
-      setReadingChunks(parts);
-      setReadingIndex(startChunkIndex);
-      setReadingBookLabel(book.filename);
-      setLoadingBookListenId(null);
-
-      if (ttsMode === "openai") {
-        let idx = startChunkIndex;
-        while (idx < parts.length) {
-          if (bookAudioTokenRef.current !== token) return;
-          const activeStartOffset = idx === startChunkIndex ? startCharIndex : 0;
-          const chunkText = parts[idx];
-          const slice = (activeStartOffset > 0 ? chunkText.slice(activeStartOffset) : chunkText).trim();
-          setReadingIndex(idx);
-          setReadWordStart(0);
-          setReadWordEnd(chunkText.length);
-          if (!slice) {
-            idx += 1;
-            continue;
-          }
-          try {
-            const response = await fetch(`${API_BASE_URL}/tts`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: slice.slice(0, 8000) }),
-            });
-            if (!response.ok) {
-              const err = (await response.json().catch(() => ({}))) as { detail?: unknown };
-              const detail =
-                typeof err.detail === "string"
-                  ? err.detail
-                  : err.detail != null
-                    ? JSON.stringify(err.detail)
-                    : `TTS failed (HTTP ${response.status}).`;
-              throw new Error(detail);
-            }
-            const blob = await response.blob();
-            if (bookAudioTokenRef.current !== token) return;
-            const url = URL.createObjectURL(blob);
-            libraryGeminiObjectUrlRef.current = url;
-            const audio = new Audio(url);
-            libraryGeminiAudioRef.current = audio;
-            await new Promise<void>((resolve, reject) => {
-              audio.onended = () => {
-                cleanupLibraryGeminiAudio();
-                resolve();
-              };
-              audio.onerror = () => {
-                cleanupLibraryGeminiAudio();
-                reject(new Error("Audio playback error."));
-              };
-              void audio.play().catch(reject);
-            });
-          } catch (e) {
-            if (bookAudioTokenRef.current === token) {
-              setListenError(e instanceof Error ? e.message : "Audio failed.");
-              setSpeakingBookId(null);
-              setReadingChunks([]);
-              setReadingIndex(0);
-              setReadingBookLabel("");
-              setReadWordStart(0);
-              setReadWordEnd(0);
-            }
-            return;
-          }
-          idx += 1;
-        }
-        if (bookAudioTokenRef.current === token) {
-          setSpeakingBookId(null);
-          setReadingChunks([]);
-          setReadingIndex(0);
-          setReadingBookLabel("");
-          setReadWordStart(0);
-          setReadWordEnd(0);
-        }
-        return;
-      }
-
-      // Browser TTS
-      let idx = startChunkIndex;
-      const speakNext = () => {
-        if (bookAudioTokenRef.current !== token) return;
-        if (idx >= parts.length) {
-          setSpeakingBookId(null);
-          setReadingChunks([]);
-          setReadingIndex(0);
-          setReadingBookLabel("");
-          setReadWordStart(0);
-          setReadWordEnd(0);
-          return;
-        }
-        const activeStartOffset = idx === startChunkIndex ? startCharIndex : 0;
-        setReadingIndex(idx);
-        setReadWordStart(activeStartOffset);
-        setReadWordEnd(Math.min(activeStartOffset + 1, parts[idx].length));
-        const chunkText = parts[idx];
-        const slice = activeStartOffset > 0 ? chunkText.slice(activeStartOffset) : chunkText;
-        const utter = new SpeechSynthesisUtterance(slice);
-        utter.rate = 1;
-        utter.pitch = 1;
-        utter.onstart = () => {
-          if (bookAudioTokenRef.current !== token) return;
-          setReadWordStart(activeStartOffset);
-          setReadWordEnd(Math.min(activeStartOffset + 1, chunkText.length));
-        };
-        utter.onboundary = (event) => {
-          if (bookAudioTokenRef.current !== token) return;
-          const e = event as SpeechSynthesisEvent;
-          const start = Math.min(Math.max(0, activeStartOffset + e.charIndex), chunkText.length);
-          let end = e.charLength > 0 ? start + e.charLength : start;
-          if (end <= start) {
-            const rest = chunkText.slice(start);
-            const word = rest.match(/^\s*\S+/)?.[0] ?? rest.slice(0, 1);
-            end = Math.min(start + (word?.length ?? 1), chunkText.length);
-          } else {
-            end = Math.min(end, chunkText.length);
-          }
-          setReadWordStart(start);
-          setReadWordEnd(end);
-        };
-        utter.onend = () => {
-          if (bookAudioTokenRef.current !== token) return;
-          setReadWordStart(0);
-          setReadWordEnd(0);
-          idx += 1;
-          speakNext();
-        };
-        utter.onerror = (event) => {
-          if (bookAudioTokenRef.current !== token) return;
-          const synthError = (event as SpeechSynthesisErrorEvent).error;
-          if (synthError === "canceled" || synthError === "interrupted") return;
-          setSpeakingBookId(null);
-          setReadingChunks([]);
-          setReadingIndex(0);
-          setReadingBookLabel("");
-          setReadWordStart(0);
-          setReadWordEnd(0);
-          setListenError("Playback stopped due to a speech synthesis error.");
-        };
-        window.speechSynthesis.speak(utter);
-      };
-      speakNext();
-    } catch (error) {
-      if (bookAudioTokenRef.current === token) {
-        setListenError(error instanceof Error ? error.message : "Could not start audio.");
-        setSpeakingBookId(null);
-      }
-    } finally {
-      setLoadingBookListenId((current) =>
-        current === book.book_id ? null : current,
-      );
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      stopBookAudio();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!speakingBookId || !nowReadingChunkRef.current) return;
-    const reduce =
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    nowReadingChunkRef.current.scrollIntoView({
-      block: "nearest",
-      behavior: reduce ? "auto" : "smooth",
-    });
-  }, [speakingBookId, readingIndex, readWordStart]);
-
   // ── Start-from dialog ──────────────────────────────────────────────────────
   const [startDialogOpen, setStartDialogOpen] = useState(false);
   const [startDialogBook, setStartDialogBook] = useState<Book | null>(null);
@@ -483,11 +203,15 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     );
     const pos = mapLineCharToChunkPosition(startDialogChunks, line, char);
     setStartDialogOpen(false);
-    await startBookAudio(startDialogBook, {
-      chunks: startDialogChunks,
-      startChunkIndex: pos.chunkIndex,
-      startCharIndex: pos.charIndex,
-    });
+    try {
+      await startBookListen(startDialogBook, {
+        chunks: startDialogChunks,
+        startChunkIndex: pos.chunkIndex,
+        startCharIndex: pos.charIndex,
+      });
+    } catch (error) {
+      setListenError(error instanceof Error ? error.message : "Could not start audio.");
+    }
   };
 
   const handlePreviewSelection = () => {
@@ -631,82 +355,15 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
       </div>
 
       {/* Error / listen alerts */}
-      {listenError && (
+      {(listenError || (audioSession.error && audioSession.source === "library")) && (
         <p className="rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-bg)] px-4 py-3 text-sm text-[var(--warning)]">
-          {listenError}
+          {listenError || audioSession.error}
         </p>
       )}
       {deleteError && (
         <p className="rounded-xl border border-[var(--danger-border)]/30 bg-[var(--danger-bg)] px-4 py-3 text-sm text-[var(--danger)]">
           {deleteError}
         </p>
-      )}
-
-      {/* Now reading banner */}
-      {speakingBookId && readingChunks.length > 0 && (
-        <div className="rounded-2xl border border-[var(--accent)]/40 bg-[var(--accent-subtle)] p-4">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="voice-bars">
-                <span />
-                <span />
-                <span />
-                <span />
-              </span>
-              <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent)]">
-                Now reading
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <p className="text-xs text-[var(--muted)]">
-                Chunk {readingIndex + 1} / {readingChunks.length}
-              </p>
-              <button
-                type="button"
-                onClick={stopBookAudio}
-                className="flex items-center gap-1.5 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--danger)]"
-              >
-                <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
-                Stop
-              </button>
-            </div>
-          </div>
-          <p className="mb-2 text-xs font-medium text-[var(--text)]">{readingBookLabel}</p>
-          <div className="max-h-44 space-y-2 overflow-y-auto pr-1">
-            {readingChunks
-              .slice(Math.max(0, readingIndex - 2), Math.min(readingChunks.length, readingIndex + 3))
-              .map((chunk, i) => {
-                const absoluteIndex = Math.max(0, readingIndex - 2) + i;
-                const active = absoluteIndex === readingIndex;
-                return (
-                  <div
-                    key={`${absoluteIndex}-${chunk.slice(0, 24)}`}
-                    ref={active ? (el) => { nowReadingChunkRef.current = el; } : undefined}
-                    className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${
-                      active
-                        ? "border-[var(--accent)] bg-[var(--panel)] text-[var(--text)] ring-1 ring-[var(--accent)]/35"
-                        : "border-[var(--border)] bg-[var(--panel-soft)] text-[var(--muted)]"
-                    }`}
-                  >
-                    <p className="mb-1 text-[10px] uppercase tracking-wider text-[var(--faint)]">
-                      {active ? "Speaking now" : `Chunk ${absoluteIndex + 1}`}
-                    </p>
-                    {active ? (
-                      <HighlightedReadingText
-                        text={chunk}
-                        highlightStart={readWordStart}
-                        highlightEnd={readWordEnd}
-                      />
-                    ) : (
-                      <p className="whitespace-pre-wrap break-words">{chunk}</p>
-                    )}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
       )}
 
       {/* Book grid */}
@@ -783,16 +440,14 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
             <BookCard
               key={book.book_id}
               book={book}
-              isSpeaking={speakingBookId === book.book_id}
-              isPreparingListen={
-                loadingBookListenId === book.book_id && speakingBookId !== book.book_id
-              }
+              isSpeaking={isBookAudioActive(book.book_id)}
+              isPreparingListen={isBookAudioLoading(book.book_id)}
               isDeleting={deletingBookId === book.book_id}
               onReadBook={() => openBookPdf(book.book_id)}
-              onListen={() => void startBookAudio(book)}
+              onListen={() => void handleListen(book)}
               onStartFrom={() => void openStartDialog(book)}
-              onCancelListen={stopBookAudio}
-              onStopAudio={stopBookAudio}
+              onCancelListen={stopAudioSession}
+              onStopAudio={stopAudioSession}
               onDelete={() => setConfirmDeleteBook(book)}
             />
           ))}
@@ -971,12 +626,9 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
                   onClick={() => {
                     if (!startDialogBook) return;
                     setStartDialogOpen(false);
-                    void startBookAudio(
-                      startDialogBook,
-                      startDialogChunks.length > 0
-                        ? { chunks: startDialogChunks }
-                        : undefined,
-                    );
+                    void handleListen(startDialogBook).catch(() => {
+                      /* errors surfaced via listenError */
+                    });
                   }}
                   className="rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-4 py-2.5 text-sm font-medium text-[var(--text)] disabled:opacity-50"
                 >
