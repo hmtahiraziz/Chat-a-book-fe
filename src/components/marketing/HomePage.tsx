@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MarketingHeader } from "@/components/marketing/MarketingHeader";
+import { ScrollAnchor } from "@/components/marketing/ScrollAnchor";
 
 const PAIN_POINTS = [
   {
@@ -122,12 +123,12 @@ export function HomePage() {
                 >
                   Start with your library
                 </Link>
-                <a
+                <ScrollAnchor
                   href="#how-it-works"
                   className="inline-flex items-center justify-center rounded-lg border border-[var(--border-strong)] px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-muted)]"
                 >
                   How it works
-                </a>
+                </ScrollAnchor>
               </div>
               <p className="mt-6 text-[12px] text-[var(--faint)]">
                 Bring your own OpenAI key on the server. Vectors in Pinecone, metadata in MongoDB.
@@ -167,7 +168,7 @@ export function HomePage() {
         </section>
 
         {/* How it works */}
-        <section id="how-it-works" className="scroll-mt-20 border-b border-[var(--border)]">
+        <section id="how-it-works" className="scroll-mt-[4.5rem] border-b border-[var(--border)] sm:scroll-mt-20">
           <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-16">
             <p className="text-[13px] font-medium uppercase tracking-widest text-[var(--faint)]">
               Workflow
@@ -188,7 +189,7 @@ export function HomePage() {
         </section>
 
         {/* Features */}
-        <section id="features" className="scroll-mt-20 border-b border-[var(--border)] bg-[var(--surface-raised)]">
+        <section id="features" className="scroll-mt-[4.5rem] border-b border-[var(--border)] bg-[var(--surface-raised)] sm:scroll-mt-20">
           <div className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-16">
             <h2 className="font-display text-2xl tracking-tight text-[var(--text)] sm:text-3xl">
               Built for study, reference, and review
