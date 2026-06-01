@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
 import { speechCleanText, type Book } from "@/components/workspace/domain";
@@ -138,6 +138,7 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     bookAudioTokenRef.current += 1;
     cleanupLibraryGeminiAudio();
     setSpeakingBookId(null);
+    setLoadingBookListenId(null);
     setReadingChunks([]);
     setReadingIndex(0);
     setReadingBookLabel("");
@@ -263,6 +264,7 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
       setReadingChunks(parts);
       setReadingIndex(startChunkIndex);
       setReadingBookLabel(book.filename);
+      setLoadingBookListenId(null);
 
       if (ttsMode === "openai") {
         let idx = startChunkIndex;
@@ -406,9 +408,9 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
         setSpeakingBookId(null);
       }
     } finally {
-      if (bookAudioTokenRef.current === token) {
-        setLoadingBookListenId(null);
-      }
+      setLoadingBookListenId((current) =>
+        current === book.book_id ? null : current,
+      );
     }
   };
 
@@ -522,6 +524,48 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
     setSelectedPreviewStart(null);
     setSelectedPreviewEnd(null);
   }, [startLine, currentDialogLineText]);
+
+  useEffect(() => {
+    if (!startDialogOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setStartDialogOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [startDialogOpen]);
+
+  const goToDialogLine = (line: number) => {
+    const next = Math.max(1, Math.min(line, Math.max(1, dialogLineCount)));
+    setStartLine(next);
+    const lineText = dialogLines[next - 1] ?? "";
+    setStartChar((c) => Math.max(1, Math.min(c, Math.max(1, lineText.length))));
+  };
+
+  const caretRangeAtPoint = (x: number, y: number): Range | null => {
+    if (document.caretRangeFromPoint) {
+      return document.caretRangeFromPoint(x, y);
+    }
+    const pos = document.caretPositionFromPoint?.(x, y);
+    if (!pos) return null;
+    const range = document.createRange();
+    range.setStart(pos.offsetNode, pos.offset);
+    range.collapse(true);
+    return range;
+  };
+
+  const handlePreviewClick = (e: MouseEvent<HTMLParagraphElement>) => {
+    const container = previewTextRef.current;
+    if (!container) return;
+    const range = caretRangeAtPoint(e.clientX, e.clientY);
+    if (!range || !container.contains(range.startContainer)) return;
+    const pre = range.cloneRange();
+    pre.selectNodeContents(container);
+    pre.setEnd(range.startContainer, range.startOffset);
+    const charIndex = pre.toString().length;
+    setStartChar(Math.max(1, charIndex + 1));
+    setSelectedPreviewStart(charIndex);
+    setSelectedPreviewEnd(charIndex);
+  };
 
   // ── Derived UI state ───────────────────────────────────────────────────────
   const showSkeleton = booksStatus === "loading" && books.length === 0;
@@ -740,11 +784,14 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
               key={book.book_id}
               book={book}
               isSpeaking={speakingBookId === book.book_id}
-              isLoadingListen={loadingBookListenId === book.book_id}
+              isPreparingListen={
+                loadingBookListenId === book.book_id && speakingBookId !== book.book_id
+              }
               isDeleting={deletingBookId === book.book_id}
               onReadBook={() => openBookPdf(book.book_id)}
               onListen={() => void startBookAudio(book)}
               onStartFrom={() => void openStartDialog(book)}
+              onCancelListen={stopBookAudio}
               onStopAudio={stopBookAudio}
               onDelete={() => setConfirmDeleteBook(book)}
             />
@@ -765,113 +812,209 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
       {/* Start-from dialog */}
       {startDialogOpen && (
         <div
-          className="fixed inset-0 z-[190] flex items-center justify-center bg-black/65 p-4"
+          className="fixed inset-0 z-[190] flex items-end justify-center bg-black/65 p-0 sm:items-center sm:p-4"
           role="dialog"
           aria-modal="true"
-          aria-label="Start reading from position"
+          aria-label="Start listening from a line"
           onClick={() => setStartDialogOpen(false)}
         >
           <div
-            className="w-full max-w-xl rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 shadow-2xl"
+            className="flex max-h-[min(92vh,720px)] w-full max-w-2xl flex-col rounded-t-2xl border border-[var(--border)] bg-[var(--panel)] shadow-2xl sm:rounded-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="font-display text-xl text-[var(--text)]">
-              Start listening from position
-            </h3>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              {startDialogBook?.filename ?? "Book"}
-            </p>
-            {startDialogLoading ? (
-              <div className="mt-6 flex items-center gap-3 text-sm text-[var(--muted)]">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
-                Loading indexed text…
-              </div>
-            ) : startDialogError ? (
-              <p className="mt-4 rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-bg)] px-3 py-2 text-xs text-[var(--warning)]">
-                {startDialogError}
+            <div className="shrink-0 border-b border-[var(--border)] px-5 py-4">
+              <h3 className="font-display text-xl text-[var(--text)]">
+                Start from a line
+              </h3>
+              <p className="mt-1 truncate text-xs text-[var(--muted)]">
+                {startDialogBook?.filename ?? "Book"}
               </p>
-            ) : (
-              <>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <label className="text-xs font-medium text-[var(--muted)]">
-                    Line
-                    <input
-                      type="number"
-                      min={1}
-                      max={Math.max(1, dialogLineCount)}
-                      value={startLine}
-                      onChange={(e) => setStartLine(Math.max(1, Number(e.target.value) || 1))}
-                      className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                    />
-                  </label>
-                  <label className="text-xs font-medium text-[var(--muted)]">
-                    Character
-                    <input
-                      type="number"
-                      min={1}
-                      max={currentDialogLineMaxChar}
-                      value={startChar}
-                      onChange={(e) => setStartChar(Math.max(1, Number(e.target.value) || 1))}
-                      className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
-                    />
-                  </label>
+              <p className="mt-2 text-[11px] leading-relaxed text-[var(--faint)]">
+                Pick a line and character, click the text to place the cursor, or highlight a
+                phrase. Press Esc to close.
+              </p>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {startDialogLoading ? (
+                <div className="flex flex-col items-center gap-3 py-10 text-center">
+                  <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
+                  <p className="text-sm font-medium text-[var(--text)]">Loading book text…</p>
+                  <p className="max-w-xs text-xs text-[var(--muted)]">
+                    Fetching indexed chunks so you can choose where to begin.
+                  </p>
                 </div>
-                <p className="mt-2 text-[11px] text-[var(--faint)]">
-                  Lines: {Math.max(1, dialogLineCount)} · Max char on line: {currentDialogLineMaxChar}
+              ) : startDialogError ? (
+                <p className="rounded-xl border border-[var(--warning)]/30 bg-[var(--warning-bg)] px-3 py-2 text-xs text-[var(--warning)]">
+                  {startDialogError}
                 </p>
-                <div className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2.5">
-                  <p className="mb-1 text-[10px] uppercase tracking-wider text-[var(--faint)]">
-                    Line preview
-                  </p>
-                  <p
-                    ref={previewTextRef}
-                    onMouseUp={handlePreviewSelection}
-                    onKeyUp={handlePreviewSelection}
-                    className="max-h-24 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-[var(--text)] selection:bg-[var(--accent)]/45"
-                  >
-                    {currentDialogLineText || "(Empty line)"}
-                  </p>
-                  {selectedPreviewStart != null && selectedPreviewEnd != null && (
-                    <p className="mt-2 text-[11px] text-[var(--muted)]">
-                      Selection starts at character {selectedPreviewStart + 1}
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={clampedDialogLine <= 1}
+                        onClick={() => goToDialogLine(clampedDialogLine - 1)}
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--panel-soft)] disabled:opacity-40"
+                        aria-label="Previous line"
+                      >
+                        ← Prev
+                      </button>
+                      <button
+                        type="button"
+                        disabled={clampedDialogLine >= dialogLineCount}
+                        onClick={() => goToDialogLine(clampedDialogLine + 1)}
+                        className="rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--text)] hover:bg-[var(--panel-soft)] disabled:opacity-40"
+                        aria-label="Next line"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                    <p className="text-xs font-medium text-[var(--muted)]">
+                      Line {clampedDialogLine} of {Math.max(1, dialogLineCount)}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <label className="text-xs font-medium text-[var(--muted)]">
+                      Line number
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.max(1, dialogLineCount)}
+                        value={startLine}
+                        onChange={(e) => goToDialogLine(Math.max(1, Number(e.target.value) || 1))}
+                        className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
+                      />
+                    </label>
+                    <label className="text-xs font-medium text-[var(--muted)]">
+                      Character on line
+                      <input
+                        type="number"
+                        min={1}
+                        max={currentDialogLineMaxChar}
+                        value={startChar}
+                        onChange={(e) => setStartChar(Math.max(1, Number(e.target.value) || 1))}
+                        className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-2 text-sm text-[var(--text)] focus:border-[var(--accent)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--chat-thread)]">
+                    <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--faint)]">
+                        Line preview
+                      </p>
+                      <p className="text-[10px] text-[var(--faint)]">
+                        Click to set · drag to highlight
+                      </p>
+                    </div>
+                    <p
+                      ref={previewTextRef}
+                      role="textbox"
+                      tabIndex={0}
+                      onClick={handlePreviewClick}
+                      onMouseUp={handlePreviewSelection}
+                      onKeyUp={handlePreviewSelection}
+                      className="max-h-40 cursor-text overflow-y-auto whitespace-pre-wrap px-3 py-3 text-sm leading-relaxed text-[var(--text)] selection:bg-[var(--accent)]/45 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[var(--accent)]/25"
+                    >
+                      {currentDialogLineText ? (
+                        <>
+                          {currentDialogLineText.slice(0, Math.max(0, startChar - 1))}
+                          <span className="border-b-2 border-[var(--accent)] bg-[var(--accent)]/20 font-medium text-[var(--accent)]">
+                            {currentDialogLineText[startChar - 1] ?? "▏"}
+                          </span>
+                          {currentDialogLineText.slice(startChar)}
+                        </>
+                      ) : (
+                        <span className="text-[var(--faint)]">(Empty line)</span>
+                      )}
+                    </p>
+                    {selectedPreviewStart != null && selectedPreviewEnd != null && (
+                      <p className="border-t border-[var(--border)] px-3 py-2 text-[11px] text-[var(--muted)]">
+                        {selectedPreviewStart === selectedPreviewEnd
+                          ? `Cursor at character ${selectedPreviewStart + 1}`
+                          : `Selection: characters ${selectedPreviewStart + 1}–${selectedPreviewEnd}`}
+                      </p>
+                    )}
+                  </div>
+
+                  {clampedDialogLine > 1 && (
+                    <p className="mt-3 line-clamp-2 text-[11px] text-[var(--faint)]">
+                      <span className="font-medium text-[var(--muted)]">Previous: </span>
+                      {dialogLines[clampedDialogLine - 2]}
                     </p>
                   )}
-                </div>
-              </>
-            )}
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStartDialogOpen(false)}
-                className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--panel-soft)]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={startDialogLoading || !!startDialogError || startDialogChunks.length === 0}
-                onClick={() => void startFromPosition()}
-                className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-              >
-                Start listening
-              </button>
-              <button
-                type="button"
-                disabled={
-                  startDialogLoading ||
-                  !!startDialogError ||
-                  startDialogChunks.length === 0 ||
-                  selectedPreviewStart == null
-                }
-                onClick={() =>
-                  void startFromPosition(
-                    selectedPreviewStart != null ? selectedPreviewStart + 1 : startChar,
-                  )
-                }
-                className="rounded-xl border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-4 py-2 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
-              >
-                Start from selection
-              </button>
+                  {clampedDialogLine < dialogLineCount && (
+                    <p className="mt-1 line-clamp-2 text-[11px] text-[var(--faint)]">
+                      <span className="font-medium text-[var(--muted)]">Next: </span>
+                      {dialogLines[clampedDialogLine]}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="shrink-0 border-t border-[var(--border)] px-5 py-4">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setStartDialogOpen(false)}
+                  className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--panel-soft)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={startDialogLoading || !!startDialogError}
+                  onClick={() => {
+                    if (!startDialogBook) return;
+                    setStartDialogOpen(false);
+                    void startBookAudio(
+                      startDialogBook,
+                      startDialogChunks.length > 0
+                        ? { chunks: startDialogChunks }
+                        : undefined,
+                    );
+                  }}
+                  className="rounded-xl border border-[var(--border)] bg-[var(--chat-thread)] px-4 py-2.5 text-sm font-medium text-[var(--text)] disabled:opacity-50"
+                >
+                  From beginning
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    startDialogLoading ||
+                    !!startDialogError ||
+                    startDialogChunks.length === 0
+                  }
+                  onClick={() => void startFromPosition()}
+                  className="rounded-xl bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  Start at line {clampedDialogLine}
+                </button>
+                {selectedPreviewStart != null &&
+                  selectedPreviewEnd != null &&
+                  selectedPreviewStart !== selectedPreviewEnd && (
+                    <button
+                      type="button"
+                      disabled={
+                        startDialogLoading ||
+                        !!startDialogError ||
+                        startDialogChunks.length === 0
+                      }
+                      onClick={() =>
+                        void startFromPosition(
+                          selectedPreviewStart != null ? selectedPreviewStart + 1 : startChar,
+                        )
+                      }
+                      className="rounded-xl border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-4 py-2.5 text-sm font-medium text-[var(--accent)] disabled:opacity-50"
+                    >
+                      Start from selection
+                    </button>
+                  )}
+              </div>
             </div>
           </div>
         </div>

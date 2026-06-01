@@ -32,11 +32,12 @@ function getBookGradient(bookId: string): string {
 type Props = {
   book: Book;
   isSpeaking: boolean;
-  isLoadingListen: boolean;
+  isPreparingListen: boolean;
   isDeleting: boolean;
   onReadBook: () => void;
   onListen: () => void;
   onStartFrom: () => void;
+  onCancelListen: () => void;
   onStopAudio: () => void;
   onDelete: () => void;
 };
@@ -44,11 +45,12 @@ type Props = {
 export function BookCard({
   book,
   isSpeaking,
-  isLoadingListen,
+  isPreparingListen,
   isDeleting,
   onReadBook,
   onListen,
   onStartFrom,
+  onCancelListen,
   onStopAudio,
   onDelete,
 }: Props) {
@@ -81,8 +83,14 @@ export function BookCard({
             />
           </svg>
         </div>
-        {/* Speaking badge */}
-        {isSpeaking && (
+        {/* Audio status badge */}
+        {isPreparingListen && (
+          <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
+            <span className="h-2.5 w-2.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+            Preparing
+          </div>
+        )}
+        {isSpeaking && !isPreparingListen && (
           <div className="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-sm">
             <span className="voice-bars">
               <span />
@@ -138,7 +146,18 @@ export function BookCard({
             Read
           </button>
 
-          {isSpeaking ? (
+          {isPreparingListen ? (
+            <button
+              type="button"
+              onClick={onCancelListen}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-1.5 text-xs font-medium text-[var(--danger)]"
+            >
+              <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+              Cancel
+            </button>
+          ) : isSpeaking ? (
             <button
               type="button"
               onClick={onStopAudio}
@@ -153,29 +172,20 @@ export function BookCard({
             <>
               <button
                 type="button"
-                disabled={isLoadingListen}
                 onClick={onListen}
-                className="flex items-center gap-1.5 rounded-lg border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors hover:opacity-80 disabled:opacity-50"
+                title="Listen from the beginning"
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--accent-muted)] bg-[var(--accent-subtle)] px-2.5 py-1.5 text-xs font-medium text-[var(--accent)] transition-colors hover:opacity-80"
               >
-                {isLoadingListen ? (
-                  <>
-                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
-                    Loading…
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                    Listen
-                  </>
-                )}
+                <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                Listen
               </button>
               <button
                 type="button"
-                disabled={isLoadingListen}
                 onClick={onStartFrom}
-                className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--chat-thread)] px-2.5 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--panel-soft)] disabled:opacity-50"
+                title="Choose a line or highlight text to start"
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--chat-thread)] px-2.5 py-1.5 text-xs font-medium text-[var(--text)] transition-colors hover:bg-[var(--panel-soft)]"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
                   <path
@@ -186,7 +196,7 @@ export function BookCard({
                     d="M13 10V3L4 14h7v7l9-11h-7z"
                   />
                 </svg>
-                From…
+                From line…
               </button>
             </>
           )}
