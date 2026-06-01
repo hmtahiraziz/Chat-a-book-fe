@@ -42,6 +42,18 @@ export type ChatSession = {
 
 export const CHAT_STORAGE_KEY = "bookchat-chat-sessions-v1";
 
+/** Keep the newest row when the same session id appears more than once. */
+export function dedupeChatSessions(sessions: ChatSession[]): ChatSession[] {
+  const byId = new Map<string, ChatSession>();
+  for (const session of sessions) {
+    const existing = byId.get(session.id);
+    if (!existing || session.updatedAt >= existing.updatedAt) {
+      byId.set(session.id, session);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 export const TERMINAL_INGEST_STATUSES = ["completed", "failed", "stopped"];
 
 export type IngestStatusPayload = {

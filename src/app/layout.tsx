@@ -21,8 +21,9 @@ const fontBody = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "BookChat",
-  description: "Chat with your books using RAG, OpenAI, and optional speech.",
+  title: "BookChat — Ask your books, cite your sources",
+  description:
+    "Upload PDFs, chat with retrieval-augmented answers, and jump back to the page each reply came from.",
 };
 
 export default function RootLayout({

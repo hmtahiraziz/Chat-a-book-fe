@@ -1,6 +1,33 @@
 import { API_BASE_URL } from "@/lib/api";
 import { getClientId } from "@/lib/clientId";
-import type { ChatSession } from "@/components/workspace/domain";
+import {
+  CHAT_STORAGE_KEY,
+  dedupeChatSessions,
+  type ChatSession,
+} from "@/components/workspace/domain";
+
+let legacyMigrationPromise: Promise<void> | null = null;
+
+/** Upload localStorage sessions once (safe under React Strict Mode double-mount). */
+export async function migrateLegacySessionsOnce(legacy: ChatSession[]): Promise<void> {
+  const rows = dedupeChatSessions(legacy);
+  if (rows.length === 0) return;
+  if (!legacyMigrationPromise) {
+    legacyMigrationPromise = (async () => {
+      for (const session of rows) {
+        try {
+          await createChatSession(session);
+        } catch {
+          // skip failed legacy rows
+        }
+      }
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(CHAT_STORAGE_KEY);
+      }
+    })();
+  }
+  await legacyMigrationPromise;
+}
 
 function headers(): HeadersInit {
   return {
@@ -19,7 +46,8 @@ export async function fetchChatSessions(): Promise<ChatSession[]> {
   const res = await fetch(`${API_BASE_URL}/chat/sessions`, { headers: headers() });
   if (!res.ok) throw new Error(await parseError(res));
   const data = (await res.json()) as { sessions?: ChatSession[] };
-  return Array.isArray(data.sessions) ? data.sessions : [];
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+  return dedupeChatSessions(sessions);
 }
 
 export async function createChatSession(session: ChatSession): Promise<ChatSession> {
