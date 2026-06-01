@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from "react";
 
-import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api";
+import { fetchAllBookChunkTexts, invalidateBookChunksCache } from "@/lib/bookChunksApi";
 import {
   createChatSession,
   deleteChatSession,
@@ -311,7 +312,8 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const loaded = await loadBooks();
+      const loaded =       await loadBooks();
+      invalidateBookChunksCache(bookId);
 
       setSelectedBookId((prev) => {
         if (prev !== bookId) return prev;
@@ -700,54 +702,11 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     return m?.[1] ? decodeURIComponent(m[1]) : null;
   };
 
-  const fetchBookChunksForAudio = useCallback(async (bookId: string): Promise<string[]> => {
-    const token = ADMIN_API_TOKEN;
-    const limit = 200;
-    const embeddingProvider =
-      books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
-    let offset = 0;
-    let total = Number.POSITIVE_INFINITY;
-    const parts: string[] = [];
-    while (offset < total) {
-      const params = `offset=${offset}&limit=${limit}&embedding_provider=${embeddingProvider}`;
-      const endpoints = [
-        `${API_BASE_URL}/admin/books/${encodeURIComponent(bookId)}/chunks?${params}`,
-        `${API_BASE_URL}/books/${encodeURIComponent(bookId)}/chunks?${params}`,
-      ];
-      let response: Response | null = null;
-      for (const endpoint of endpoints) {
-        const res = await fetch(endpoint, {
-          headers: token ? { "X-Admin-Token": token } : undefined,
-        });
-        if (res.status === 404) continue;
-        response = res;
-        break;
-      }
-      if (!response) {
-        throw new Error("No compatible chunks endpoint found for book audio on this backend.");
-      }
-      if (!response.ok) {
-        throw new Error(
-          response.status === 401
-            ? "Admin token required for book audio (NEXT_PUBLIC_ADMIN_API_TOKEN)."
-            : `Book audio failed (HTTP ${response.status}).`,
-        );
-      }
-      const data = (await response.json()) as {
-        total: number;
-        returned: number;
-        chunks: Array<{ text?: string }>;
-      };
-      total = typeof data.total === "number" ? data.total : 0;
-      const chunkTexts = (data.chunks ?? [])
-        .map((c) => speechCleanText(c.text ?? ""))
-        .filter(Boolean);
-      parts.push(...chunkTexts);
-      if (!data.returned || data.returned <= 0) break;
-      offset += data.returned;
-    }
-    return parts;
-  }, [books]);
+  const loadBookChunksForAudio = useCallback(
+    async (bookId: string, embeddingProvider: string = "openai") =>
+      fetchAllBookChunkTexts(bookId, embeddingProvider),
+    [],
+  );
 
   const mapLineCharToChunkPosition = (chunks: string[], line: number, char: number) => {
     const joined = chunks.join("\n");
@@ -801,13 +760,15 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         setPdfAudioError("Could not determine book ID for audio.");
         return;
       }
+      const embeddingProvider =
+        books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
       stopPdfAudio();
       setPdfAudioError("");
       setPdfAudioLoading(true);
       const token = pdfAudioTokenRef.current + 1;
       pdfAudioTokenRef.current = token;
       try {
-        const parts = await fetchBookChunksForAudio(bookId);
+        const parts = await loadBookChunksForAudio(bookId, embeddingProvider);
         if (pdfAudioTokenRef.current !== token) return;
         if (parts.length === 0) {
           throw new Error("No readable text found for this book.");
@@ -948,26 +909,29 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         if (pdfAudioTokenRef.current === token) setPdfAudioLoading(false);
       }
     },
-    [pdfReaderModal, fetchBookChunksForAudio, stopPdfAudio, ttsMode, cleanupServerTtsAudio],
+    [pdfReaderModal, books, loadBookChunksForAudio, stopPdfAudio, ttsMode, cleanupServerTtsAudio],
   );
 
-  useEffect(() => {
+  const loadPdfChunksIfNeeded = useCallback(async () => {
     if (!pdfReaderModal) return;
     const bookId = parseBookIdFromPdfUrl(pdfReaderModal.url);
     if (!bookId) return;
-    let cancelled = false;
-    void fetchBookChunksForAudio(bookId)
-      .then((chunks) => {
-        if (cancelled) return;
-        setPdfAudioChunks(chunks);
-      })
-      .catch(() => {
-        // keep non-blocking; errors are shown when user explicitly starts playback
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [pdfReaderModal, fetchBookChunksForAudio]);
+    if (pdfAudioChunks.length > 0) return;
+    const embeddingProvider =
+      books.find((b) => b.book_id === bookId)?.embedding_provider ?? "openai";
+    setPdfAudioLoading(true);
+    setPdfAudioError("");
+    try {
+      const chunks = await loadBookChunksForAudio(bookId, embeddingProvider);
+      setPdfAudioChunks(chunks);
+    } catch (error) {
+      setPdfAudioError(
+        error instanceof Error ? error.message : "Could not load book text for audio.",
+      );
+    } finally {
+      setPdfAudioLoading(false);
+    }
+  }, [pdfReaderModal, pdfAudioChunks.length, books, loadBookChunksForAudio]);
 
   const pdfJoined = pdfAudioChunks.join("\n");
   const pdfLines = pdfJoined ? pdfJoined.split("\n") : [];
@@ -1301,10 +1265,11 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
                     </button>
                     <button
                       type="button"
-                      disabled={pdfAudioLoading || pdfAudioChunks.length === 0}
+                      disabled={pdfAudioLoading}
                       onClick={() => {
-                        setPdfStartDialogOpen(true);
                         setPdfSelectedStart(null);
+                        setPdfStartDialogOpen(true);
+                        void loadPdfChunksIfNeeded();
                       }}
                       className="rounded-md border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-1 text-xs text-[var(--text)] disabled:opacity-50"
                     >
@@ -1362,6 +1327,9 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           >
             <h3 className="font-display text-xl text-[var(--text)]">Start from position</h3>
             <p className="mt-1 text-xs text-[var(--muted)]">{pdfReaderModal.title}</p>
+            {pdfAudioLoading && pdfAudioChunks.length === 0 ? (
+              <p className="mt-3 text-xs text-[var(--muted)]">Loading book text…</p>
+            ) : null}
             <div className="mt-4 grid grid-cols-2 gap-3">
               <label className="text-xs text-[var(--muted)]">
                 Line
@@ -1417,6 +1385,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
               </button>
               <button
                 type="button"
+                disabled={pdfAudioChunks.length === 0 || pdfAudioLoading}
                 onClick={() => {
                   const pos = mapLineCharToChunkPosition(
                     pdfAudioChunks,
@@ -1426,13 +1395,13 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
                   setPdfStartDialogOpen(false);
                   void startPdfAudio({ startChunkIndex: pos.chunkIndex, startCharIndex: pos.charIndex });
                 }}
-                className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--bg)]"
+                className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--bg)] disabled:opacity-50"
               >
                 Start listening
               </button>
               <button
                 type="button"
-                disabled={pdfSelectedStart == null}
+                disabled={pdfSelectedStart == null || pdfAudioChunks.length === 0 || pdfAudioLoading}
                 onClick={() => {
                   const pos = mapLineCharToChunkPosition(
                     pdfAudioChunks,
