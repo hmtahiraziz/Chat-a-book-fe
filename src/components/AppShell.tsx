@@ -17,7 +17,7 @@ const NAV = [
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={1.75}
-          d="M4 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v5a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zM14 13a1 1 0 011-1h4a1 1 0 011 1v6a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6z"
+          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
         />
       </svg>
     ),
@@ -32,7 +32,7 @@ const NAV = [
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={1.75}
-          d="M8 10h8M8 14h4M5 19h3v-3a4 4 0 014-4h3l2-3h-3.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
         />
       </svg>
     ),
@@ -62,7 +62,7 @@ const NAV = [
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeWidth={1.75}
-          d="M4 6h16M4 12h10M4 18h16M17 12l3-2v4l-3-2z"
+          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
         />
       </svg>
     ),
@@ -76,25 +76,28 @@ function navItemActive(pathname: string, href: string): boolean {
   return false;
 }
 
-function ApiStatusDot({ status }: { status: "loading" | "ready" | "error" }) {
+function ApiStatusPill({ status }: { status: "loading" | "ready" | "error" }) {
   if (status === "loading") {
     return (
-      <span
-        className="inline-block h-2 w-2 animate-pulse rounded-full bg-[var(--warning)]"
-        title="Checking API…"
-      />
+      <span className="flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--surface-muted)] px-2.5 py-1 text-[10px] font-medium text-[var(--muted)]">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--warning)]" />
+        Connecting…
+      </span>
     );
   }
   if (status === "error") {
     return (
-      <span
-        className="inline-block h-2 w-2 rounded-full bg-[var(--danger)]"
-        title="API unreachable"
-      />
+      <span className="flex items-center gap-1.5 rounded-full border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-1 text-[10px] font-medium text-[var(--danger)]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" />
+        API offline
+      </span>
     );
   }
   return (
-    <span className="inline-block h-2 w-2 rounded-full bg-[var(--success)]" title="Library API OK" />
+    <span className="flex items-center gap-1.5 rounded-full border border-[var(--success)]/30 bg-[var(--success)]/10 px-2.5 py-1 text-[10px] font-medium text-[var(--success)]">
+      <span className="h-1.5 w-1.5 rounded-full bg-[var(--success)]" />
+      API connected
+    </span>
   );
 }
 
@@ -110,34 +113,66 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         Skip to content
       </a>
-      <aside className="z-50 flex w-full shrink-0 flex-col border-b border-[var(--border-strong)]/40 bg-[var(--panel)] md:fixed md:left-0 md:top-0 md:h-screen md:w-64 md:border-b-0 md:border-r md:shadow-[var(--shadow-sidebar)]">
-        <div className="border-b border-[var(--border)] px-4 py-5">
-          <Link
-            href="/workspace"
-            className="font-display block text-[17px] leading-tight tracking-tight text-[var(--text)] hover:text-[var(--accent)]"
-          >
-            BookChat
-          </Link>
-          <div className="mt-3 space-y-2">
-            <div className="flex items-center gap-2 text-[11px] text-[var(--muted)]">
-              <ApiStatusDot status={booksStatus} />
-              <span className="font-medium uppercase tracking-wider">Library API</span>
+
+      {/* Sidebar */}
+      <aside className="z-50 flex w-full shrink-0 flex-col bg-[var(--panel)] md:fixed md:left-0 md:top-0 md:h-screen md:w-64 md:border-r md:border-[var(--border)] md:shadow-[var(--shadow-sidebar)]">
+        {/* Brand */}
+        <div className="shrink-0 px-4 pb-4 pt-5">
+          <Link href="/workspace" className="group flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] shadow-sm transition-opacity group-hover:opacity-90">
+              <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                <path
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                />
+              </svg>
             </div>
-            <details className="group rounded-lg border border-[var(--border)] bg-[var(--panel-soft)] px-2.5 py-2 text-[10px] text-[var(--muted)]">
-              <summary className="cursor-pointer list-none font-mono text-[var(--faint)] marker:content-none [&::-webkit-details-marker]:hidden">
-                <span className="text-[var(--muted)]">Endpoint</span>
-                <span className="ml-1 text-[var(--text)] group-open:hidden">▸</span>
-                <span className="ml-1 hidden text-[var(--text)] group-open:inline">▾</span>
-              </summary>
-              <p
-                className="mt-2 break-all font-mono text-[10px] leading-snug text-[var(--muted)]"
-                title={API_BASE_URL}
-              >
-                {API_BASE_URL}
+            <div className="min-w-0">
+              <p className="font-display text-[15px] font-semibold leading-tight tracking-tight text-[var(--text)]">
+                BookChat
               </p>
-            </details>
+              <p className="text-[10px] text-[var(--faint)]">RAG Platform</p>
+            </div>
+          </Link>
+
+          <div className="mt-4">
+            <ApiStatusPill status={booksStatus} />
           </div>
+
+          {/* Collapsible endpoint */}
+          <details className="group mt-2">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[10px] text-[var(--faint)] hover:text-[var(--muted)] [&::-webkit-details-marker]:hidden">
+              <svg
+                className="h-3 w-3 transition-transform group-open:rotate-90"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5l7 7-7 7"
+                />
+              </svg>
+              <span>Show endpoint</span>
+            </summary>
+            <p
+              className="mt-1.5 break-all rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-2.5 py-1.5 font-mono text-[9px] leading-snug text-[var(--muted)]"
+              title={API_BASE_URL}
+            >
+              {API_BASE_URL}
+            </p>
+          </details>
         </div>
+
+        {/* Divider */}
+        <div className="mx-4 h-px bg-[var(--border)]" />
+
+        {/* Nav */}
         <nav
           className="flex flex-1 flex-row gap-0.5 overflow-x-auto p-2 md:flex-col md:overflow-x-visible"
           aria-label="Primary"
@@ -148,33 +183,54 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                   active
-                    ? "bg-[var(--accent-subtle)] text-[var(--text)] ring-1 ring-[var(--accent)]/45 shadow-sm"
+                    ? "bg-[var(--accent-subtle)] text-[var(--text)]"
                     : "text-[var(--muted)] hover:bg-[var(--panel-soft)] hover:text-[var(--text)]"
                 }`}
               >
-                <span className={active ? "text-[var(--accent)]" : "text-[var(--faint)]"}>
+                {/* Active left accent */}
+                <span
+                  className={`absolute left-2 hidden h-5 w-0.5 rounded-full bg-[var(--accent)] md:block ${active ? "opacity-100" : "opacity-0"}`}
+                  aria-hidden
+                />
+                <span
+                  className={`transition-colors ${active ? "text-[var(--accent)]" : "text-[var(--faint)] group-hover:text-[var(--muted)]"}`}
+                >
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="hidden md:block">{item.label}</span>
+                {active && (
+                  <span className="ml-auto hidden h-1.5 w-1.5 rounded-full bg-[var(--accent)] md:block" />
+                )}
               </Link>
             );
           })}
         </nav>
-        <div className="border-t border-[var(--border)] p-3">
+
+        {/* Footer */}
+        <div className="shrink-0 border-t border-[var(--border)] p-3">
           <ThemeToggle className="w-full justify-center md:justify-start" />
-          <p className="mt-3 hidden text-[10px] text-[var(--faint)] md:block">
-            LangChain · Pinecone · MongoDB
-          </p>
+          <div className="mt-3 hidden flex-wrap gap-1.5 md:flex">
+            {["LangChain", "Pinecone", "MongoDB"].map((tech) => (
+              <span
+                key={tech}
+                className="rounded-md bg-[var(--surface-muted)] px-1.5 py-0.5 text-[9px] font-medium text-[var(--faint)]"
+              >
+                {tech}
+              </span>
+            ))}
+          </div>
         </div>
       </aside>
+
+      {/* Main content */}
       <div
         id="main-content"
-        className="flex min-h-0 min-h-screen flex-1 flex-col md:pl-64"
+        className="flex min-h-screen flex-1 flex-col md:pl-64"
         tabIndex={-1}
       >
-        <div className="flex min-h-screen flex-1 flex-col">{children}</div>
+        {children}
       </div>
     </div>
   );
