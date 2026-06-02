@@ -71,7 +71,7 @@ function ProductPreview() {
         <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-md bg-[var(--chat-user)] px-4 py-3 text-[13px] leading-relaxed text-[var(--text)]">
           What problem does the Factory Method pattern solve?
         </div>
-        <div class="max-w-[92%] rounded-2xl rounded-tl-md border border-[var(--border)] bg-[var(--chat-assistant)] px-4 py-3">
+        <div className="max-w-[92%] rounded-2xl rounded-tl-md border border-[var(--border)] bg-[var(--chat-assistant)] px-4 py-3">
           <p className="text-[13px] leading-relaxed text-[var(--text)]">
             It decouples object creation from the code that uses those objects, so subclasses can choose
             which concrete type to instantiate without changing client code.
