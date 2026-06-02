@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/providers/AuthProvider";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { API_BASE_URL } from "@/lib/api";
@@ -104,9 +105,20 @@ function ApiStatusPill({ status }: { status: "loading" | "ready" | "error" }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { booksStatus } = useWorkspaceApp();
-  const isMarketingHome = pathname === "/";
+  const { user, logout } = useAuth();
 
-  if (isMarketingHome) {
+  const navItems = NAV.filter(
+    (item) => item.href !== "/admin/chunks" || user?.role === "admin",
+  );
+  const isBareLayout =
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/register" ||
+    pathname === "/pricing" ||
+    pathname === "/demo" ||
+    pathname.startsWith("/subscribe");
+
+  if (isBareLayout) {
     return <>{children}</>;
   }
 
@@ -182,7 +194,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="flex flex-1 flex-row gap-0.5 overflow-x-auto p-2 md:flex-col md:overflow-x-visible"
           aria-label="Primary"
         >
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active = navItemActive(pathname, item.href);
             return (
               <Link
@@ -215,6 +227,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <div className="shrink-0 border-t border-[var(--border)] p-3">
+          {user ? (
+            <div className="mb-3 hidden rounded-lg border border-[var(--border)] bg-[var(--surface-muted)] px-3 py-2 md:block">
+              <p className="truncate text-[11px] font-medium text-[var(--text)]">{user.email}</p>
+              <p className="text-[10px] capitalize text-[var(--faint)]">
+                {user.subscription.status === "active"
+                  ? `${user.subscription.plan_id ?? "pro"} plan`
+                  : "No active plan"}
+              </p>
+              <button
+                type="button"
+                onClick={logout}
+                className="mt-1 text-[10px] text-[var(--accent)] hover:underline"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
           <ThemeToggle className="w-full justify-center md:justify-start" />
           <div className="mt-3 hidden flex-wrap gap-1.5 md:flex">
             {["LangChain", "Pinecone", "MongoDB"].map((tech) => (

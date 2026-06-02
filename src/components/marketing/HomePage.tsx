@@ -118,18 +118,28 @@ export function HomePage() {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
-                  href="/workspace"
+                  href="/demo"
                   className="inline-flex items-center justify-center rounded-lg bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)]"
                 >
-                  Start with your library
+                  Try demo — Harry Potter
+                </Link>
+                <Link
+                  href="/register"
+                  className="inline-flex items-center justify-center rounded-lg border border-[var(--border-strong)] px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-muted)]"
+                >
+                  Create account
                 </Link>
                 <ScrollAnchor
                   href="#how-it-works"
-                  className="inline-flex items-center justify-center rounded-lg border border-[var(--border-strong)] px-5 py-2.5 text-sm font-medium text-[var(--text)] transition-colors hover:bg-[var(--surface-muted)]"
+                  className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] px-5 py-2.5 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
                 >
                   How it works
                 </ScrollAnchor>
               </div>
+              <p className="mt-3 text-[12px] text-[var(--faint)]">
+                Demo opens the shared library with no signup — chat against the ingested Harry Potter
+                book.
+              </p>
               <p className="mt-6 text-[12px] text-[var(--faint)]">
                 Bring your own OpenAI key on the server. Vectors in Pinecone, metadata in MongoDB.
               </p>

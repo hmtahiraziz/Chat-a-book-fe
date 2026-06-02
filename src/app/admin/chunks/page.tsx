@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/authApi";
 
 const ADMIN_TOKEN_STORAGE = "bookchat-admin-token";
 
@@ -84,7 +85,7 @@ export default function AdminChunksPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/books`);
+        const res = await fetch(`${API_BASE_URL}/books`, { headers: authHeaders() });
         if (!res.ok) return;
         const json = await res.json();
         const list = Array.isArray(json?.books) ? (json.books as Book[]) : [];
@@ -110,7 +111,7 @@ export default function AdminChunksPage() {
         offset: String(offset),
         limit: String(limit),
       });
-      const headers: HeadersInit = {};
+      const headers = { ...(authHeaders() as Record<string, string>) };
       if (effectiveToken) {
         headers["X-Admin-Token"] = effectiveToken;
       }

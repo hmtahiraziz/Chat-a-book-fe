@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { AuthMarketingLinks } from "@/components/auth/AuthGuard";
 import { ScrollAnchor } from "@/components/marketing/ScrollAnchor";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 const NAV = [
   { href: "#how-it-works", label: "How it works" },
   { href: "#features", label: "Features" },
+  { href: "/pricing", label: "Pricing", isRoute: true },
 ] as const;
 
 export function MarketingHeader() {
@@ -31,25 +33,30 @@ export function MarketingHeader() {
         </Link>
 
         <nav className="hidden items-center gap-8 sm:flex" aria-label="Marketing">
-          {NAV.map((item) => (
-            <ScrollAnchor
-              key={item.href}
-              href={item.href}
-              className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--text)]"
-            >
-              {item.label}
-            </ScrollAnchor>
-          ))}
+          {NAV.map((item) =>
+            "isRoute" in item && item.isRoute ? (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+              >
+                {item.label}
+              </Link>
+            ) : (
+              <ScrollAnchor
+                key={item.href}
+                href={item.href}
+                className="text-sm text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+              >
+                {item.label}
+              </ScrollAnchor>
+            ),
+          )}
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
           <ThemeToggle className="hidden border-transparent bg-transparent px-2 sm:flex" />
-          <Link
-            href="/workspace"
-            className="rounded-lg bg-[var(--accent)] px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--accent-hover)] sm:px-4"
-          >
-            Open workspace
-          </Link>
+          <AuthMarketingLinks />
         </div>
       </div>
     </header>

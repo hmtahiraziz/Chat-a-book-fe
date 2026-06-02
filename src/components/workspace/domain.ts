@@ -69,8 +69,9 @@ export type IngestStatusPayload = {
 };
 
 export type PdfReaderModal = {
-  url: string;
+  bookId: string;
   title: string;
+  blobUrl: string;
 };
 
 export function readSessionsFromStorage(): ChatSession[] {
