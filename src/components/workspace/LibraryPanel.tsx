@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { isDemoUser } from "@/lib/authApi";
+import { useAuth } from "@/providers/AuthProvider";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
 import { authHeaders } from "@/lib/authApi";
@@ -31,10 +33,12 @@ function LibrarySkeleton() {
 }
 
 type Props = {
-  onGoToIngestion: () => void;
+  onGoToIngestion?: () => void;
 };
 
 export function LibraryPanel({ onGoToIngestion }: Props) {
+  const { user } = useAuth();
+  const demo = isDemoUser(user);
   const {
     books,
     booksStatus,
@@ -411,25 +415,29 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
           <div>
             <p className="text-base font-semibold text-[var(--text)]">No books yet</p>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Upload a PDF in the Ingestion tab to get started.
+              {demo
+                ? "The sample book is not available. Ask your host to run the demo seed script."
+                : "Upload a PDF in the Ingestion tab to get started."}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onGoToIngestion}
-            className="flex items-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24">
-              <path
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-              />
-            </svg>
-            Go to Ingestion
-          </button>
+          {onGoToIngestion ? (
+            <button
+              type="button"
+              onClick={onGoToIngestion}
+              className="flex items-center gap-2 rounded-xl bg-[var(--accent)] px-5 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <path
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                />
+              </svg>
+              Go to Ingestion
+            </button>
+          ) : null}
         </div>
       ) : filteredBooks.length === 0 ? (
         <p className="py-8 text-center text-sm text-[var(--muted)]">
@@ -450,6 +458,7 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
               onCancelListen={stopAudioSession}
               onStopAudio={stopAudioSession}
               onDelete={() => setConfirmDeleteBook(book)}
+              showDelete={!demo}
             />
           ))}
         </div>

@@ -27,7 +27,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (!isSubscribed && pathname !== "/subscribe") {
+    if (!isSubscribed && pathname !== "/subscribe" && pathname !== "/pricing") {
       router.replace(`/subscribe?next=${encodeURIComponent(pathname)}`);
     }
   }, [status, isSubscribed, pathname, router]);
@@ -44,7 +44,13 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     return null;
   }
 
-  if (!isPublicPath(pathname) && status === "authenticated" && !isSubscribed && pathname !== "/subscribe") {
+  if (
+    !isPublicPath(pathname) &&
+    status === "authenticated" &&
+    !isSubscribed &&
+    pathname !== "/subscribe" &&
+    pathname !== "/pricing"
+  ) {
     return null;
   }
 

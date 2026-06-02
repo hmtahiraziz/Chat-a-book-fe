@@ -13,10 +13,13 @@ export function PricingCards({
   actionLabel = "Choose plan",
   onSelectPlan,
   highlightPlan,
+  viewOnly = false,
 }: {
   actionLabel?: string;
   onSelectPlan?: (planId: PlanId) => void;
   highlightPlan?: PlanId;
+  /** Hide subscribe / checkout actions — plans are display-only. */
+  viewOnly?: boolean;
 }) {
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +72,7 @@ export function PricingCards({
                 </li>
               ))}
             </ul>
-            {onSelectPlan ? (
+            {viewOnly ? null : onSelectPlan ? (
               <button
                 type="button"
                 onClick={() => onSelectPlan(plan.id)}

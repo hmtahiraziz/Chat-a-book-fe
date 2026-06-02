@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { API_BASE_URL } from "@/lib/api";
+import { isDemoUser } from "@/lib/authApi";
 import { useAuth } from "@/providers/AuthProvider";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import type { TtsMode } from "@/lib/appSettings";
@@ -61,6 +62,7 @@ function Segmented<T extends string>({
 
 export default function SettingsPage() {
   const { user, logout, isSubscribed } = useAuth();
+  const demo = isDemoUser(user);
   const { ttsMode, setTtsMode } = useWorkspaceApp();
 
   const [serverInfo, setServerInfo] = useState<ServerInfoPayload | null>(null);
@@ -129,12 +131,20 @@ export default function SettingsPage() {
                 <span className="font-medium capitalize text-[var(--text)]">
                   {isSubscribed ? user.subscription.plan_id ?? "active" : "none"}
                 </span>
-                {!isSubscribed ? (
+                {!isSubscribed && !demo ? (
                   <Link href="/subscribe" className="ml-2 text-[var(--accent)] hover:underline">
                     Subscribe
                   </Link>
                 ) : null}
+                {demo ? (
+                  <Link href="/pricing" className="ml-2 text-[var(--accent)] hover:underline">
+                    View plans
+                  </Link>
+                ) : null}
               </p>
+              {demo ? (
+                <p className="text-xs text-[var(--faint)]">Demo account — uploads disabled</p>
+              ) : null}
               {user.role === "admin" ? (
                 <p className="text-xs text-[var(--faint)]">Administrator account</p>
               ) : null}

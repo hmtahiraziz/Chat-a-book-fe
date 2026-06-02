@@ -14,9 +14,14 @@ export type AuthUser = {
   email: string;
   name: string;
   role: "user" | "admin";
+  is_demo?: boolean;
   subscription: SubscriptionInfo;
   created_at?: number | null;
 };
+
+export function isDemoUser(user: AuthUser | null): boolean {
+  return Boolean(user?.is_demo);
+}
 
 export type SubscriptionPlan = {
   id: PlanId;

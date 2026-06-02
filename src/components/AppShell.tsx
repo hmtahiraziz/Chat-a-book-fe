@@ -39,6 +39,21 @@ const NAV = [
     ),
   },
   {
+    href: "/pricing",
+    label: "Subscription",
+    icon: (
+      <svg className="h-[18px] w-[18px] shrink-0" fill="none" viewBox="0 0 24 24" aria-hidden>
+        <path
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.75}
+          d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/settings",
     label: "Settings",
     icon: (
@@ -74,6 +89,7 @@ function navItemActive(pathname: string, href: string): boolean {
   if (pathname === href) return true;
   if (href === "/admin/chunks" && pathname.startsWith("/admin")) return true;
   if (href === "/settings" && pathname.startsWith("/settings")) return true;
+  if (href === "/pricing" && pathname.startsWith("/pricing")) return true;
   return false;
 }
 
@@ -105,16 +121,18 @@ function ApiStatusPill({ status }: { status: "loading" | "ready" | "error" }) {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { booksStatus } = useWorkspaceApp();
-  const { user, logout } = useAuth();
+  const { user, logout, status: authStatus } = useAuth();
 
   const navItems = NAV.filter(
     (item) => item.href !== "/admin/chunks" || user?.role === "admin",
   );
+  const isMarketingPricing = pathname === "/pricing" && authStatus !== "authenticated";
+
   const isBareLayout =
     pathname === "/" ||
     pathname === "/login" ||
     pathname === "/register" ||
-    pathname === "/pricing" ||
+    isMarketingPricing ||
     pathname === "/demo" ||
     pathname.startsWith("/subscribe");
 
