@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/authApi";
 import type { TtsMode } from "@/lib/appSettings";
 import {
   createIdleAudioSession,
@@ -161,7 +162,7 @@ export function useBookAudioSession(ttsMode: TtsMode) {
     async (text: string, token: number): Promise<void> => {
       const response = await fetch(`${API_BASE_URL}/tts`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ text: text.slice(0, 8000) }),
       });
       if (!response.ok) {
