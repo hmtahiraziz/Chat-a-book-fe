@@ -12,6 +12,10 @@ import {
 } from "react";
 
 import { API_BASE_URL } from "@/lib/api";
+import { authHeaders, authHeadersBearerOnly } from "@/lib/authApi";
+import { fetchBookPdfBlobUrl, revokeBookPdfBlobUrl } from "@/lib/bookPdf";
+import { consumeDemoBookId, peekDemoBookId } from "@/lib/demoBook";
+import { useAuth } from "@/providers/AuthProvider";
 import { fetchAllBookChunkTexts, invalidateBookChunksCache } from "@/lib/bookChunksApi";
 import {
   createChatSession,
@@ -160,6 +164,9 @@ export function useWorkspaceApp(): WorkspaceAppContextValue {
 }
 
 export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
+  const { status: authStatus, isSubscribed } = useAuth();
+  const canLoadWorkspace = authStatus === "authenticated" && isSubscribed;
+
   const [books, setBooks] = useState<Book[]>([]);
   const [booksStatus, setBooksStatus] = useState<BooksLoadStatus>("loading");
   const [booksError, setBooksError] = useState<string | null>(null);
@@ -205,6 +212,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   const [activeSessionId, setActiveSessionId] = useState("");
 
   const [pdfReaderModal, setPdfReaderModal] = useState<PdfReaderModal | null>(null);
+  const [pdfIframeLoading, setPdfIframeLoading] = useState(false);
   const [pdfDialogChunks, setPdfDialogChunks] = useState<string[]>([]);
   const [pdfDialogLoading, setPdfDialogLoading] = useState(false);
   const [pdfDialogError, setPdfDialogError] = useState("");
@@ -249,7 +257,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     setBooksStatus("loading");
     setBooksError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/books`);
+      const response = await fetch(`${API_BASE_URL}/books`, { headers: authHeaders() });
       if (!response.ok) {
         setBooksStatus("error");
         setBooksError(`Could not load library (HTTP ${response.status}). Is the API running?`);
@@ -277,6 +285,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     async (bookId: string) => {
       const response = await fetch(`${API_BASE_URL}/books/${encodeURIComponent(bookId)}`, {
         method: "DELETE",
+        headers: authHeaders(),
       });
       const body = (await response.json().catch(() => ({}))) as { detail?: unknown };
       if (!response.ok) {
@@ -362,8 +371,16 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (authStatus === "loading") {
+      setBooksStatus("loading");
+      setBooksError(null);
+      return;
+    }
+    if (!canLoadWorkspace) {
+      return;
+    }
     void loadBooks();
-  }, [loadBooks]);
+  }, [authStatus, canLoadWorkspace, loadBooks]);
 
   const loadChatSessions = useCallback(async () => {
     setChatSessionsError(null);
@@ -387,6 +404,13 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!canLoadWorkspace) {
+      if (authStatus === "guest") {
+        setChatSessionsHydrated(false);
+      }
+      return;
+    }
+
     const prefs = readAppSettings();
     setTtsModeInner(prefs.ttsMode);
     setEmbeddingProviderInner(prefs.embeddingProvider);
@@ -394,7 +418,8 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
 
     void (async () => {
       const loaded = await loadChatSessions();
-      if (loaded.length > 0) {
+      const pendingDemo = peekDemoBookId();
+      if (loaded.length > 0 && !pendingDemo) {
         setActiveSessionId(loaded[0].id);
         const first = loaded[0];
         setSelectedBookId(first.bookId);
@@ -403,27 +428,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       }
       setChatSessionsHydrated(true);
     })();
-  }, [loadChatSessions]);
-
-  useEffect(() => {
-    if (!pdfReaderModal) return;
-    setPdfDialogError("");
-    setPdfDialogChunks([]);
-    setPdfStartDialogOpen(false);
-    setPdfStartLine(1);
-    setPdfStartChar(1);
-    setPdfSelectedStart(null);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPdfReaderModal(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [pdfReaderModal]);
+  }, [authStatus, canLoadWorkspace, loadChatSessions]);
 
   useEffect(() => {
     return () => {
@@ -458,6 +463,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
       try {
         const response = await fetch(
           `${API_BASE_URL}/ingest/status?filename=${encodeURIComponent(ingestPollFilename)}`,
+          { headers: authHeaders() },
         );
         if (!response.ok) return;
         const data = (await response.json()) as IngestStatusPayload;
@@ -479,7 +485,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(
         `${API_BASE_URL}/ingest/control?filename=${encodeURIComponent(ingestFilename)}&action=${action}`,
-        { method: "POST" },
+        { method: "POST", headers: authHeaders() },
       );
       const data = await response.json();
       if (!response.ok) {
@@ -521,6 +527,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
         `${API_BASE_URL}/books/ingest?embedding_provider=${embeddingProvider}`,
         {
           method: "POST",
+          headers: authHeadersBearerOnly(),
           body: formData,
         },
       );
@@ -571,6 +578,22 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     [books, embeddingProvider, chatProvider, setEmbeddingProvider],
   );
 
+  useEffect(() => {
+    if (!chatSessionsHydrated || books.length === 0) return;
+    const demoBookId = consumeDemoBookId();
+    if (!demoBookId || !books.some((b) => b.book_id === demoBookId)) return;
+
+    const existing = chatSessions.find((s) => s.bookId === demoBookId);
+    if (existing) {
+      setActiveSessionId(existing.id);
+      setSelectedBookId(demoBookId);
+      setEmbeddingProviderInner(existing.embeddingProvider);
+      setChatProviderInner(existing.chatProvider);
+      return;
+    }
+    createNewChatSession(demoBookId);
+  }, [chatSessionsHydrated, books, chatSessions, createNewChatSession]);
+
   const selectSession = (id: string) => {
     const s = chatSessions.find((x) => x.id === id);
     setActiveSessionId(id);
@@ -603,37 +626,90 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const openSourceInBook = (bookId: string, page: number | undefined, preview?: string) => {
-    if (!bookId || page == null || page < 1) return;
-    const snippet =
-      (preview ?? "")
-        .replace(/\s+/g, " ")
-        .trim()
-        .split(" ")
-        .slice(0, 8)
-        .join(" ") || "";
-    const fragment = snippet
-      ? `#page=${page}&search=${encodeURIComponent(snippet)}`
-      : `#page=${page}`;
-    const url = `${API_BASE_URL}/books/${encodeURIComponent(bookId)}/pdf${fragment}`;
-    const label =
-      books.find((b) => b.book_id === bookId)?.filename ??
-      activeSession?.bookLabel ??
-      "Book";
-    setPdfReaderModal({ url, title: label });
-  };
+  const closePdfReader = useCallback(() => {
+    setPdfReaderModal((current) => {
+      if (current?.blobUrl) revokeBookPdfBlobUrl(current.blobUrl);
+      return null;
+    });
+    setPdfIframeLoading(false);
+  }, []);
 
-  const openBookPdf = (bookId: string) => {
-    if (!bookId) return;
-    const url = `${API_BASE_URL}/books/${encodeURIComponent(bookId)}/pdf`;
-    const label = books.find((b) => b.book_id === bookId)?.filename ?? "Book";
-    setPdfReaderModal({ url, title: label });
-  };
+  const openSourceInBook = useCallback(
+    async (bookId: string, page: number | undefined, preview?: string) => {
+      if (!bookId || page == null || page < 1) return;
+      const snippet =
+        (preview ?? "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .split(" ")
+          .slice(0, 8)
+          .join(" ") || "";
+      const fragment = snippet
+        ? `#page=${page}&search=${encodeURIComponent(snippet)}`
+        : `#page=${page}`;
+      const label =
+        books.find((b) => b.book_id === bookId)?.filename ??
+        activeSession?.bookLabel ??
+        "Book";
+      setPdfDialogError("");
+      setPdfReaderModal((current) => {
+        if (current?.blobUrl) revokeBookPdfBlobUrl(current.blobUrl);
+        return { bookId, title: label, blobUrl: "" };
+      });
+      setPdfIframeLoading(true);
+      try {
+        const blobUrl = await fetchBookPdfBlobUrl(bookId, fragment);
+        setPdfReaderModal({ bookId, title: label, blobUrl });
+      } catch (e) {
+        setPdfDialogError(e instanceof Error ? e.message : "Could not open PDF.");
+      } finally {
+        setPdfIframeLoading(false);
+      }
+    },
+    [activeSession?.bookLabel, books],
+  );
 
-  const parseBookIdFromPdfUrl = (url: string): string | null => {
-    const m = url.match(/\/books\/([^/]+)\/pdf/);
-    return m?.[1] ? decodeURIComponent(m[1]) : null;
-  };
+  const openBookPdf = useCallback(
+    async (bookId: string) => {
+      if (!bookId) return;
+      const label = books.find((b) => b.book_id === bookId)?.filename ?? "Book";
+      setPdfDialogError("");
+      setPdfReaderModal((current) => {
+        if (current?.blobUrl) revokeBookPdfBlobUrl(current.blobUrl);
+        return { bookId, title: label, blobUrl: "" };
+      });
+      setPdfIframeLoading(true);
+      try {
+        const blobUrl = await fetchBookPdfBlobUrl(bookId);
+        setPdfReaderModal({ bookId, title: label, blobUrl });
+      } catch (e) {
+        setPdfDialogError(e instanceof Error ? e.message : "Could not open PDF.");
+      } finally {
+        setPdfIframeLoading(false);
+      }
+    },
+    [books],
+  );
+
+  useEffect(() => {
+    if (!pdfReaderModal) return;
+    setPdfDialogError("");
+    setPdfDialogChunks([]);
+    setPdfStartDialogOpen(false);
+    setPdfStartLine(1);
+    setPdfStartChar(1);
+    setPdfSelectedStart(null);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePdfReader();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [pdfReaderModal, closePdfReader]);
 
   const loadBookChunksForAudio = useCallback(
     async (bookId: string, embeddingProvider: string = "openai") =>
@@ -679,7 +755,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     async (opts?: { startChunkIndex?: number; startCharIndex?: number }) => {
       if (!pdfReaderModal || typeof window === "undefined") return;
       if (ttsMode === "browser" && !("speechSynthesis" in window)) return;
-      const bookId = parseBookIdFromPdfUrl(pdfReaderModal.url);
+      const bookId = pdfReaderModal.bookId;
       if (!bookId) {
         setPdfDialogError("Could not determine book ID for audio.");
         return;
@@ -714,7 +790,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
 
   const loadPdfChunksIfNeeded = useCallback(async () => {
     if (!pdfReaderModal) return;
-    const bookId = parseBookIdFromPdfUrl(pdfReaderModal.url);
+    const bookId = pdfReaderModal.bookId;
     if (!bookId) return;
     if (pdfDialogChunks.length > 0) return;
     const embeddingProvider =
@@ -838,7 +914,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     try {
       const response = await fetch(`${API_BASE_URL}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({
           book_id: selectedBookId,
           question: q,
@@ -1028,7 +1104,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
     isBookAudioLoading,
   };
 
-  const pdfBookId = pdfReaderModal ? parseBookIdFromPdfUrl(pdfReaderModal.url) : null;
+  const pdfBookId = pdfReaderModal?.bookId ?? null;
   const pdfSessionActive =
     pdfBookId != null &&
     audioSession.bookId === pdfBookId &&
@@ -1055,7 +1131,7 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
           role="dialog"
           aria-modal="true"
           aria-label="Book PDF"
-          onClick={() => setPdfReaderModal(null)}
+          onClick={closePdfReader}
         >
           <div
             className="flex h-[calc(100vh-1rem)] w-full max-w-[1400px] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-input)] shadow-2xl sm:h-[calc(100vh-2rem)]"
@@ -1112,20 +1188,32 @@ export function WorkspaceAppProvider({ children }: { children: ReactNode }) {
                 )}
                 <button
                   type="button"
-                  onClick={() => setPdfReaderModal(null)}
+                  onClick={closePdfReader}
                   className="rounded-md border border-[var(--border)] bg-[var(--chat-thread)] px-3 py-1 text-xs text-[var(--text)] hover:bg-[var(--panel-soft)]"
                 >
                   Close
                 </button>
               </div>
             </div>
-            <iframe
-              key={pdfReaderModal.url}
-              title={pdfReaderModal.title}
-              src={pdfReaderModal.url}
-              className="min-h-0 w-full flex-1 border-0 bg-[var(--surface-muted)]"
-              allow="fullscreen"
-            />
+            {pdfIframeLoading ? (
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--surface-muted)]">
+                <p className="text-sm text-[var(--muted)]">Loading PDF…</p>
+              </div>
+            ) : pdfReaderModal.blobUrl ? (
+              <iframe
+                key={pdfReaderModal.blobUrl}
+                title={pdfReaderModal.title}
+                src={pdfReaderModal.blobUrl}
+                className="min-h-0 w-full flex-1 border-0 bg-[var(--surface-muted)]"
+                allow="fullscreen"
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center bg-[var(--surface-muted)] px-6">
+                <p className="text-center text-sm text-[var(--danger)]">
+                  {pdfDialogError || "Could not load PDF."}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       ) : null}

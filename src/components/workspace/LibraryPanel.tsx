@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/authApi";
 import { mapLineCharToChunkPosition } from "@/lib/bookAudioSession";
 import { speechCleanText, type Book } from "@/components/workspace/domain";
 import { BookCard } from "@/components/workspace/BookCard";
@@ -109,9 +110,9 @@ export function LibraryPanel({ onGoToIngestion }: Props) {
       ];
       let response: Response | null = null;
       for (const endpoint of endpoints) {
-        const res = await fetch(endpoint, {
-          headers: token ? { "X-Admin-Token": token } : undefined,
-        });
+        const headers = { ...(authHeaders() as Record<string, string>) };
+        if (token) headers["X-Admin-Token"] = token;
+        const res = await fetch(endpoint, { headers });
         if (res.status === 404) continue;
         response = res;
         break;
