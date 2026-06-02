@@ -1,4 +1,5 @@
 import { ADMIN_API_TOKEN, API_BASE_URL } from "@/lib/api";
+import { authHeaders } from "@/lib/authApi";
 import { speechCleanText } from "@/components/workspace/domain";
 
 const TEXT_PAGE_LIMIT = 500;
@@ -41,7 +42,7 @@ async function fetchChunkTextsPage(
     `/books/${encodeURIComponent(bookId)}/chunks/text?${params}`,
     `/admin/books/${encodeURIComponent(bookId)}/chunks/text?${params}`,
   ];
-  const headers: HeadersInit = {};
+  const headers = { ...(authHeaders() as Record<string, string>) };
   if (ADMIN_API_TOKEN) headers["X-Admin-Token"] = ADMIN_API_TOKEN;
 
   let response: Response | null = null;

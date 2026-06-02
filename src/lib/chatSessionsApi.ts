@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "@/lib/api";
-import { getClientId } from "@/lib/clientId";
+import { authHeaders } from "@/lib/authApi";
 import {
   CHAT_STORAGE_KEY,
   dedupeChatSessions,
@@ -30,10 +30,7 @@ export async function migrateLegacySessionsOnce(legacy: ChatSession[]): Promise<
 }
 
 function headers(): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    "X-Client-Id": getClientId(),
-  };
+  return authHeaders();
 }
 
 async function parseError(res: Response): Promise<string> {

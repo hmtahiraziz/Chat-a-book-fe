@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 
+import Link from "next/link";
+
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { API_BASE_URL } from "@/lib/api";
+import { useAuth } from "@/providers/AuthProvider";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import type { TtsMode } from "@/lib/appSettings";
 
@@ -57,6 +60,7 @@ function Segmented<T extends string>({
 }
 
 export default function SettingsPage() {
+  const { user, logout, isSubscribed } = useAuth();
   const { ttsMode, setTtsMode } = useWorkspaceApp();
 
   const [serverInfo, setServerInfo] = useState<ServerInfoPayload | null>(null);
@@ -104,6 +108,47 @@ export default function SettingsPage() {
       </header>
 
       <div className="space-y-10">
+        <section
+          className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 md:p-5"
+          aria-labelledby="account-heading"
+        >
+          <h2
+            id="account-heading"
+            className="text-sm font-semibold uppercase tracking-wider text-[var(--muted)]"
+          >
+            Account
+          </h2>
+          {user ? (
+            <div className="mt-4 space-y-3 text-sm">
+              <p>
+                <span className="text-[var(--muted)]">Signed in as </span>
+                <span className="font-medium text-[var(--text)]">{user.email}</span>
+              </p>
+              <p>
+                <span className="text-[var(--muted)]">Plan: </span>
+                <span className="font-medium capitalize text-[var(--text)]">
+                  {isSubscribed ? user.subscription.plan_id ?? "active" : "none"}
+                </span>
+                {!isSubscribed ? (
+                  <Link href="/subscribe" className="ml-2 text-[var(--accent)] hover:underline">
+                    Subscribe
+                  </Link>
+                ) : null}
+              </p>
+              {user.role === "admin" ? (
+                <p className="text-xs text-[var(--faint)]">Administrator account</p>
+              ) : null}
+              <button
+                type="button"
+                onClick={logout}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted)] hover:text-[var(--text)]"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : null}
+        </section>
+
         <section
           className="rounded-xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 md:p-5"
           aria-labelledby="appearance-heading"
