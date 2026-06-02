@@ -8,7 +8,9 @@ Next.js UI for the BookChat LangChain API (`ai-book-chatbot-v2`).
 - Library explorer for indexed books
 - Chat workspace with RAG, sources, and sessions
 - Settings: OpenAI on the server; browser or OpenAI TTS
-- Chunk inspector (`/admin/chunks`)
+- Chunk inspector (`/admin/chunks`, admin only)
+- **Auth**: register, login, pricing, mock subscription checkout
+- Protected workspace (sign in + active plan required)
 
 ## Prerequisites
 
