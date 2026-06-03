@@ -6,6 +6,7 @@ import { useAuth } from "@/providers/AuthProvider";
 import { useWorkspaceApp } from "@/providers/WorkspaceAppProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { API_BASE_URL } from "@/lib/api";
+import { isBareLayoutPath } from "@/lib/publicRoutes";
 
 const NAV = [
   {
@@ -126,17 +127,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navItems = NAV.filter(
     (item) => item.href !== "/admin/chunks" || user?.role === "admin",
   );
-  const isMarketingPricing = pathname === "/pricing" && authStatus !== "authenticated";
 
-  const isBareLayout =
-    pathname === "/" ||
-    pathname === "/login" ||
-    pathname === "/register" ||
-    isMarketingPricing ||
-    pathname === "/demo" ||
-    pathname.startsWith("/subscribe");
-
-  if (isBareLayout) {
+  if (isBareLayoutPath(pathname, authStatus)) {
     return <>{children}</>;
   }
 
