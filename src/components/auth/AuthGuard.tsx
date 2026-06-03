@@ -2,35 +2,38 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { startTransition, useEffect, useState, type ReactNode } from "react";
 
+import { isPublicPath } from "@/lib/publicRoutes";
 import { useAuth } from "@/providers/AuthProvider";
-
-const PUBLIC_PREFIXES = ["/login", "/register", "/pricing", "/subscribe", "/demo"];
-
-function isPublicPath(pathname: string): boolean {
-  if (pathname === "/") return true;
-  return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const { status, user, isSubscribed } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const [routerReady, setRouterReady] = useState(false);
 
   useEffect(() => {
-    if (status === "loading") return;
+    setRouterReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!routerReady || status === "loading" || !pathname) return;
     if (isPublicPath(pathname)) return;
 
     if (status === "guest") {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      startTransition(() => {
+        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      });
       return;
     }
 
     if (!isSubscribed && pathname !== "/subscribe" && pathname !== "/pricing") {
-      router.replace(`/subscribe?next=${encodeURIComponent(pathname)}`);
+      startTransition(() => {
+        router.replace(`/subscribe?next=${encodeURIComponent(pathname)}`);
+      });
     }
-  }, [status, isSubscribed, pathname, router]);
+  }, [routerReady, status, isSubscribed, pathname, router]);
 
   if (status === "loading" && !isPublicPath(pathname)) {
     return (
